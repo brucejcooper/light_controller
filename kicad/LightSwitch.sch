@@ -160,14 +160,12 @@ F 3 "" H 6650 1250 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	6650 1250 6650 1300
-Text Label 7350 1600 0    50   ~ 0
+Text Label 7350 1800 0    50   ~ 0
 SW
 Wire Wire Line
 	7250 1600 7350 1600
-Text Label 7350 1700 0    50   ~ 0
+Text Label 7350 1600 0    50   ~ 0
 ZCD
-Wire Wire Line
-	7350 1700 7250 1700
 $Comp
 L Relay_SolidState:MOC3052M U?
 U 1 1 61A7C269
@@ -209,7 +207,7 @@ Text Label 2000 4250 2    50   ~ 0
 DIMMER_IN
 Wire Wire Line
 	2000 4250 2050 4250
-Text Label 7350 1800 0    50   ~ 0
+Text Label 7350 2000 0    50   ~ 0
 DIMMER_IN
 Wire Wire Line
 	7350 1800 7250 1800
@@ -218,7 +216,6 @@ OW
 Wire Wire Line
 	7350 1900 7250 1900
 NoConn ~ 7250 2100
-NoConn ~ 7250 2000
 $Comp
 L Connector:Screw_Terminal_01x02 J?
 U 1 1 61A991FD
@@ -350,7 +347,7 @@ L Device:R R?
 U 1 1 61AF7411
 P 10000 3300
 F 0 "R?" H 10070 3346 50  0000 L CNN
-F 1 "R" H 10070 3255 50  0000 L CNN
+F 1 "4.7k" H 10070 3255 50  0000 L CNN
 F 2 "" V 9930 3300 50  0001 C CNN
 F 3 "~" H 10000 3300 50  0001 C CNN
 	1    10000 3300
@@ -508,4 +505,28 @@ Connection ~ 4850 3050
 Connection ~ 4650 2700
 Wire Wire Line
 	4850 2700 5000 2700
+$Comp
+L Device:R R?
+U 1 1 61ADD4D7
+P 4800 3400
+F 0 "R?" V 4593 3400 50  0000 C CNN
+F 1 "4.7k" V 4684 3400 50  0000 C CNN
+F 2 "" V 4730 3400 50  0001 C CNN
+F 3 "~" H 4800 3400 50  0001 C CNN
+	1    4800 3400
+	0    -1   -1   0   
+$EndComp
+Wire Wire Line
+	4650 3050 4650 3400
+Wire Wire Line
+	7250 1700 7350 1700
+Wire Wire Line
+	7350 2000 7250 2000
+Wire Wire Line
+	4950 3400 5050 3400
+Text Label 5050 3400 0    50   ~ 0
+ZCD_NEGREF
+Text Label 7350 1700 0    50   ~ 0
+ZCD_NEGREF
+Connection ~ 4650 3050
 $EndSCHEMATC
