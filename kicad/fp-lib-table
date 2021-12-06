@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name LightSwitch)(type KiCad)(uri ${KIPRJMOD}/LightSwitch.pretty)(options "")(descr ""))
+)

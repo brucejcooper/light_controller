@@ -1,0 +1,3 @@
+This repository is an experiment I am conducting on how best to do a circuit implemented a million times before.  a light switch dimmer (trailing edge). The idea here is to make something that is both efficient and cheap to build.
+
+The need for an effective ZCD mechanism has driven me down a traditional transformer + LDO approach.  This may seem weird, but from what I've read SMPS are not very good at very low load, and light switches are off more than they are on.  What we need here is something that draws micro-amps when it is switched off.
