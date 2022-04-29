@@ -2,3 +2,4 @@ main.o
 main.elf
 main.hex
 kicad/LightSwitch.sch-bak
+avr/

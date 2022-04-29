@@ -1,3 +1,15 @@
+
+
+# Downloading AVR compiler for attiny 0 series
+The default avr-gcc installed by ubuntu doesn't do the 0 series, so I'm stealing the one that Arduino uses
+
+```bash
+wget http://downloads.arduino.cc/tools/avr-gcc-7.3.0-atmel3.6.1-arduino7-x86_64-pc-linux-gnu.tar.bz2 -q -O- | bzcat | tar xv
+```
+
+This will create a avr-gcc toolchain in the directory `avr` - The Makefile is set up to use this by default.  You can also just run `make download_gcc` to get it.  I will make this query the arduino repository for the latest version in a later update.
+
+
 This repository is an experiment I am conducting on how best to do a circuit implemented a million times before.  a light switch dimmer (trailing edge). The idea here is to make something that is both efficient and cheap to build.
 
 [Shelly](https://shelly.cloud) produces good, cheap devices, but I'm worried about their vampiric current draw.

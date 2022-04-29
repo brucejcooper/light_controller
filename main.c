@@ -1,31 +1,32 @@
 /* 
-  sample UART software
-  transmit serial data at 9600,N,8,1
-  code for avr-gcc
-           ATTiny85 at 8 MHz
-  code in public domain
+  DALI master, useable as a multi-switch controller.  Programmed (via UPDI, or UART?) to respond to button presses
+  by sending out DALI commands to dim 
 */
 
+#define __DELAY_BACKWARD_COMPATIBLE__
+
 #include <avr/io.h>
+#include <util/delay.h>
 #include <inttypes.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
-#include <util/delay.h>
 #include <stdio.h>
+#include <util/atomic.h>
 
+/*
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit)) // clear bit
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))  // set bit
 
-/* ATTiny85 IO pins
+/ * attiny804 IO pins
              ___^___
            -|PB5 VCC|-
            -|PB3 PB2|-
 Load       -|PB4 PB1|- GND (-ve analog compare)
            -|GND PB0|- Zero cross in
              -------
-*/
+* /
 
-/* prototypes */
+/ * prototypes * /
 // main routines
 void setup(void);
 int main(void);
@@ -34,7 +35,7 @@ int main(void);
 volatile uint8_t duty = 77/2;
 
 
-/*** ISR ***/
+/ *** ISR *** /
 
 
 ISR(ANA_COMP_vect) {
@@ -85,3 +86,102 @@ int main(void) {
        sleep_cpu();
   }
 };
+*/
+
+#define MIN(a,b) (a < b ? a : b)
+
+#define STEP_DELAY          10
+#define THRESHOLD           100					/* 100 steps x 10 ms/step -> 1000 ms */
+#define LONG_DELAY          500
+#define SHORT_DELAY         100
+#define NUMBER_OF_BLINKS    3
+
+// Switch is on PB2
+#define SWITCH_PORT PORTB
+#define SWITCH_bm   PIN2_bm
+
+// LED is on PA4
+#define LED_PORT PORTA
+#define LED_bm   PIN4_bm
+
+volatile uint8_t pb2Ioc;
+
+
+
+ISR(PORTB_PORT_vect)
+{
+    if(SWITCH_PORT.INTFLAGS & SWITCH_bm)
+    {
+        pb2Ioc = 1;
+        SWITCH_PORT.INTFLAGS &= SWITCH_bm;
+
+        if (SWITCH_PORT.IN & SWITCH_bm) {
+            LED_PORT.OUTCLR = LED_bm;
+        } else {
+            LED_PORT.OUTSET = LED_bm;
+        }
+    }
+}
+
+
+
+void long_delay(int16_t ms) {
+  while (ms > 0) {
+    int16_t amt = MIN(10, ms);
+    _delay_ms(amt);
+    ms -= amt;
+  }
+}
+
+void LED_blink(uint32_t time_ms)
+{
+    for (uint8_t i = 0; i < NUMBER_OF_BLINKS; i++)
+    {
+        LED_PORT.OUT |= LED_bm;
+        long_delay(time_ms);
+        LED_PORT.OUT &= ~LED_bm;
+        long_delay(time_ms);
+    }
+}
+
+
+
+
+int main(void)
+{
+    uint8_t counter = 0;
+
+    SWITCH_PORT.DIRCLR = SWITCH_bm; /* set PB2 as input */
+    SWITCH_PORT.PIN2CTRL = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc; /* enable internal pull-up */
+    LED_PORT.DIRSET = LED_bm; /* set PB5 as output */
+
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sei();
+
+    while (1)
+    {
+        sleep_mode();
+        // if (~SWITCH_PORT.IN & SWITCH_bm) /* check if PB2 is pulled to GND */
+        // {
+        //     while (~SWITCH_PORT.IN & SWITCH_bm) /* wait until PB2 is pulled to VDD */
+        //     {
+        //         _delay_ms(STEP_DELAY);
+        //         counter++;
+        //         if (counter >= THRESHOLD)
+        //         {
+        //             LED_blink(LONG_DELAY);
+        //             while (~SWITCH_PORT.IN & SWITCH_bm) /* wait until PB2 is pulled to VDD */
+        //             {
+        //                 ;
+        //             }
+        //             break;
+        //         }
+        //     }
+        //     if (counter < THRESHOLD)
+        //     {
+        //         LED_blink(SHORT_DELAY);
+        //     }
+        //     counter = 0;
+        // }
+    }
+}

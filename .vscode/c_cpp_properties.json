@@ -4,19 +4,17 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/lib/avr/include"
             ],
             "defines": [
-                "__GNUC__=5",
-                "__GNUC_MINOR__=4",
-                "__ATtiny85__",
-                "__AVR_ATtiny85__",
-                "__AVR_DEV_LIB_NAME__=tn817",
-                "F_CPU=8000000"
+                "__GNUC__=7",
+                "__GNUC_MINOR__=3",
+                "__ATtiny804__",
+                "__AVR_ATtiny804__",
+                "F_CPU=20000000"
            ],
-            "compilerPath": "/usr/bin/avr-gcc",
-            "cStandard": "c99",
-            "cppStandard": "c++03",
+            "compilerPath": "${workspaceFolder}/avr/bin/avr-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
             "intelliSenseMode": "linux-gcc-x64"
         }
     ],
