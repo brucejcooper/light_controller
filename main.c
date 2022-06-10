@@ -108,17 +108,62 @@ volatile uint8_t pb2Ioc;
 
 
 
+/*
+ * Events that can occur 
+ * 1. a button short press (x 5 buttons) - GPIO interrupt, plus timers for debounce (too short a press should be ignored as a debounce)
+ * 2. a button long press (x 5 buttons) - as above, but the timer is ongoing. 
+ * 3. There is a DALI command to send (in the queue) and the bus is idle.
+ * 4. a DALI receive starts - GPIO change interrupt plus timing (on the order of milliseconds).
+ * 
+ */
+
+#define NUM_BUTTONS (5)
+
+typedef enum {
+    BTN_RELEASED,
+    BTN_DEBOUNCE,
+    BTN_SHORT_PRESS,
+    BTN_LONG_PRESS,
+} switchstate_t;
+
+switchstate_t button_states[NUM_BUTTONS] = { BTN_RELEASED, BTN_RELEASED, BTN_RELEASED, BTN_RELEASED, BTN_RELEASED };
+uint16_t next_button_timeout[NUM_BUTTONS];
+
+// We don't assume that the PORTB pin numbers line up exactly with the switches (maybe we can in the future).  this maps it
+const uint16_t button_masks[NUM_BUTTONS] = {
+    PIN1_bm,
+    PIN2_bm,
+    PIN3_bm,
+    PIN4_bm,
+    PIN5_bm,
+};
+
+// Messing with the LED.
+//            LED_PORT.OUTSET = LED_bm;
+//            LED_PORT.OUTCLR = LED_bm;
+
+
 ISR(PORTB_PORT_vect)
 {
-    if(SWITCH_PORT.INTFLAGS & SWITCH_bm)
-    {
-        pb2Ioc = 1;
-        SWITCH_PORT.INTFLAGS &= SWITCH_bm;
+    for (int pin = 0; pin < NUM_BUTTONS; pin++) {
+        uint8_t bm = button_masks[pin];
+        switchstate_t swState = button_states[pin];
 
-        if (SWITCH_PORT.IN & SWITCH_bm) {
-            LED_PORT.OUTCLR = LED_bm;
+        if(SWITCH_PORT.INTFLAGS & bm) {
+        // Clears the interrupt flag.
+        SWITCH_PORT.INTFLAGS &= bm;
+
+        if (SWITCH_PORT.IN & bm) {
+            // Released.
+            // Turn off any button related timers.
+            if (swState == BTN_SHORT_PRESS) {
+                // It was released after the debounce period, but before it turned into a long press.  Issue the short press command.
+            }
+            button_states[pin] = BTN_RELEASED;
         } else {
-            LED_PORT.OUTSET = LED_bm;
+            // High to Low. 
+            button_states[pin] = BTN_DEBOUNCE;
+            // Set a timer for the debounce period. 
         }
     }
 }

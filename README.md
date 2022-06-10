@@ -9,10 +9,11 @@ This repo consists of the code that I'm using for my own home automation light s
 1. I must be able to control lights via a home automation system (home assistant, or equivalent)
 1. It should be as cheap as possible to produce.
 
-So the idea is that none of these devices will have WiFi or ethernet themselves.  That would consume too much current.  Instead, We will use the DALI protocol, which is baked into the transformers that I'll be using for my home.
+So the idea is that none of these devices will have WiFi or ethernet themselves.  That would consume too much current.  Instead, We will use the DALI protocol, which is baked into the transformers that I'll be using for my home.  The circuit for driving a dali signal is very simple, with the exception of isolated power (needed to make the device safe in the presence of a 220V AC wire).  All isolated power systems that I'm aware of use a large amount of quiescent current (on the order of 10s of mA).  This would overload the DALI power supply. 
 
+# Tech notes
 
-# Downloading AVR compiler for attiny 0 series
+## Downloading AVR compiler for attiny 0 series
 The default avr-gcc installed by ubuntu doesn't do the 0 series, so I'm stealing the one that Arduino uses
 
 ```bash
