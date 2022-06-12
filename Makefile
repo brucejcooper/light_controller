@@ -16,8 +16,11 @@ download_gcc:
     
 	
 build:
-	$(COMPILE) -c $(FILENAME).c -o $(FILENAME).o
-	$(COMPILE) -o $(FILENAME).elf $(FILENAME).o
+	$(COMPILE) -c main.c -o main.o
+	$(COMPILE) -c buttons.c -o buttons.o
+	$(COMPILE) -c dali.c -o dali.o
+	$(COMPILE) -c queue.c -o queue.o
+	$(COMPILE) -o $(FILENAME).elf main.o buttons.o dali.o queue.o
 	avr-objcopy -j .text -j .data -O ihex $(FILENAME).elf $(FILENAME).hex
 	avr-size --format=avr --mcu=$(DEVICE) $(FILENAME).elf
 
@@ -29,6 +32,6 @@ upload:
 	pymcuprog -t uart -u $(PORT) -d $(DEVICE) write -f $(FILENAME).hex --verify
 
 clean:
-	rm -f main.o
+	rm -f main.o buttons.o dali.o queue.o
 	rm -f main.elf
 	rm -f main.hex

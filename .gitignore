@@ -1,4 +1,4 @@
-main.o
+*.o
 main.elf
 main.hex
 kicad/LightSwitch.sch-bak
