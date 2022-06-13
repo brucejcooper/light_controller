@@ -12,7 +12,7 @@
 
 // Good documentation for Dali commands - https://www.nxp.com/files-static/microcontrollers/doc/ref_manual/DRM004.pdf
 
-// The DALI configuration - PA4
+// The DALI configuration - PA4 for transmit - PA3 for receive.
 #define DALI_TX_bm      PIN4_bm
 #define DALI_RX_bm      PIN3_bm
 #define DALI_PORT       PORTA
@@ -23,15 +23,38 @@ static volatile uint16_t shiftreg = 0;
 static volatile uint8_t half_bits_remaining = 0;
 static volatile uint8_t next_output;
 
+
+
+ISR(PORTA_PORT_vect)
+{
+    if(DALI_PORT.INTFLAGS & DALI_RX_bm) {
+
+        // This is an indication that there was a falling edge during a high period of the bus while writing.
+        // i.e. somebody else drew the line low when it should be us in control.  A collision has occurred.
+        // Disable our interrupts, this detector, and set the collision_detected flag to be true.
+        TCA0.SINGLE.CTRLA = 0;
+        DALI_PORT.PIN3CTRL = PORT_PULLUPEN_bm; 
+        DALI_PORT.OUTSET = DALI_TX_bm;
+        half_bits_remaining = 0;
+        collision_detected = true;
+
+        // Clear flag
+        DALI_PORT.INTFLAGS = DALI_RX_bm;          
+    }
+}
+
+
 ISR(TCA0_OVF_vect)
 {
     // while transmitting, this is called every 416.4us
     if (next_output) {
         DALI_PORT.OUTSET = DALI_TX_bm;
-        // TODO turn on edge interrupt to detect collision.
+        // Turn on falling edge detection on RX line (collision detection)
+        DALI_PORT.PIN3CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
     } else {
+        // Turn off falling edge collision detection on RX line, as we are driving it low ourselves
+        DALI_PORT.PIN3CTRL = PORT_PULLUPEN_bm; 
         DALI_PORT.OUTCLR = DALI_TX_bm;
-        // TODO turn off edge interrupt.
     }
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear flag.
     if (--half_bits_remaining > 0) {
@@ -88,7 +111,7 @@ dali_result_t dali_transmit_cmd(uint8_t addr, uint8_t cmd) {
 
 
     // Wait for the bits to be transmitted.  We know we are finished when the timer is disabled.
-    while (TCA0.SINGLE.CTRLA > 0) {
+    while (half_bits_remaining > 0) {
         ;
     }
     // Wait for the stop bits - send line high (done by timer), then wait for 2 bit periods (4 half bits)
@@ -124,11 +147,24 @@ static dali_result_t read_start_bit() {
 }
 
 
+#define TICKS_TO_USEC(t)    (t/(F_CPU/1000000.0))
+
+/**
+ * When receiving. Set up edge transition interrupts.  Run the timer TCA0 along side it.  Record how many uSecs it spends in each state
+ * 
+ * start bit should be 416 +/- 10% low then either 416 high or 833 high... and so on and so forth.
+ * 
+ * In the event of any failures, wait until you get at least 2ms of empty bus.
+ */
+
+
 dali_result_t dali_receive(uint8_t *address, uint8_t *command) {
     // If the bus is high, then its not the start of a packet.
     if (DALI_PORT.IN & DALI_RX_bm) {
         return DALI_NO_START_BIT;
     }
+
+
 
     dali_result_t res = DALI_OK;
     res = read_start_bit();
