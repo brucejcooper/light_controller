@@ -24,24 +24,13 @@ queue_t event_queue;
 
 int mapButtonToAddress(int button) {
     // TODO implement me.
-    return button+1;
+    return 0xde;
 }
 
 int mapActionToDaliCommand(button_event_t action) {
     // TODO implement me.
-    return 0x01;
+    return 0xad;
 }
-
-
-static void debug() {
-    if (PORTA.OUT & PIN4_bm) {
-        PORTA.OUT &= ~PIN4_bm;
-    } else {
-        PORTA.OUT |= PIN4_bm;
-    }
-
-}
-
 
 int main(void)
 {
@@ -56,13 +45,20 @@ int main(void)
     while (1)
     {
         uint8_t evt;
-        queue_result_t res = queue_pop(&event_queue, &evt);
+        queue_result_t res; 
         dali_result_t dres;
         int button;
         button_event_t action;
         uint8_t address;
         uint8_t command;
 
+        // dres = dali_receive(&address, &command);
+        // if (dres == DALI_OK) {
+
+        // }
+
+
+        res = queue_pop(&event_queue, &evt);
         if (res == QUEUE_OK) {
             button = evt & 0x0F;
             action = (button_event_t) evt >> 4;
@@ -70,12 +66,13 @@ int main(void)
             address = mapButtonToAddress(button);
             command = mapActionToDaliCommand(action);
 
-            debug();
+            // debug();
 
-            // do {
-                // dres = dali_transmit_cmd(address, command);
+            do {
+                dres = dali_transmit_cmd(address, command);
                 // TODO enforce required backoff if there was a collision - Random backoff time?
-            // } while (dres != DALI_OK);
+            } while (dres != DALI_OK);
+            _delay_ms(5);
         } else {
             // sleep_mode();
         }

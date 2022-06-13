@@ -1,8 +1,3 @@
-/* 
-  DALI master, useable as a multi-switch controller.  Programmed (via UPDI, or UART?) to respond to button presses
-  by sending out DALI commands to dim 
-*/
-
 #define __DELAY_BACKWARD_COMPATIBLE__
 
 #include <avr/io.h>
@@ -15,95 +10,132 @@
 #include <stdbool.h>
 #include "dali.h"
 
+// Good documentation for Dali commands - https://www.nxp.com/files-static/microcontrollers/doc/ref_manual/DRM004.pdf
+
 // The DALI configuration - PA4
-#define DALI_bm     PIN4_bm
-#define DALI_PORT   PORTA
-
-
+#define DALI_TX_bm      PIN4_bm
+#define DALI_RX_bm      PIN3_bm
+#define DALI_PORT       PORTA
 
 volatile bool collision_detected = false;
 
-static inline void drive_dali_low() {
-    DALI_PORT.OUT &= ~DALI_bm;
+static volatile uint16_t shiftreg = 0;
+static volatile uint8_t half_bits_remaining = 0;
+static volatile uint8_t next_output;
+
+ISR(TCA0_OVF_vect)
+{
+    // while transmitting, this is called every 416.4us
+    if (next_output) {
+        DALI_PORT.OUTSET = DALI_TX_bm;
+        // TODO turn on edge interrupt to detect collision.
+    } else {
+        DALI_PORT.OUTCLR = DALI_TX_bm;
+        // TODO turn off edge interrupt.
+    }
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear flag.
+    if (--half_bits_remaining > 0) {
+        if ((half_bits_remaining % 2) == 1) {
+            next_output = shiftreg & (0x01 << 15) ? 0 : 1; // The MSB.
+            shiftreg <<= 1;
+        } else {
+            // We're half way through the bit, so toggle.
+            next_output = !next_output;
+        }
+    } else {
+        // We're done. Disable the timer (Remove the enable bit from CTRLA)
+        TCA0.SINGLE.CTRLA = 0;
+        // Return the bus high for stop bits.
+        DALI_PORT.OUTSET = DALI_TX_bm;
+    }
 }
-
-static inline void release_dali_high() {
-    DALI_PORT.OUT |= DALI_bm;
-}
-
-
-static inline void delay_half_bit() {
-    _delay_us(416);
-}
-
-
-static inline void transmit_high_half_bit() {
-    // TODO Check for collisions.
-    release_dali_high();
-    delay_half_bit();
-}
-
-
-static inline void transmit_low_half_bit() {
-    // TODO Check for collisions.
-    drive_dali_low();
-    delay_half_bit();
-}
-
-static inline void transmit_start() {
-    // TODO Check that line is not driven low for 8 ms.
-    transmit_low_half_bit();
-    transmit_high_half_bit();    
-}
-
-static inline void transmit_stop() {
-    // release the bus (just in case)
-    release_dali_high();
-
-    // Wait for 2 full bit cycles.
-    _delay_us(416*4);
-}
-
 
 
 void dali_init() {
-    // Set up dali port as output.
-    DALI_PORT.DIRSET = DALI_bm;
-    release_dali_high();
-}
+    // Set up dali TX as an output (initially high)
+    DALI_PORT.OUTSET = DALI_TX_bm;
+    DALI_PORT.DIRSET = DALI_TX_bm;
+    // and RX as an Input, with pullup.
+    DALI_PORT.DIRCLR = DALI_RX_bm;
+    DALI_PORT.PIN3CTRL = PORT_PULLUPEN_bm;
+    // DRive the dali bus High.
+    DALI_PORT.OUTSET = DALI_TX_bm;
 
-void dali_debug_blink() {
-    drive_dali_low();
-    _delay_ms(200/6);
-    release_dali_high();
+    // Set up timer TCA0 for DALI transmission
+    TCA0.SINGLE.PER = 1386; // at 3.3Mhz, this will go off every 416.4us)
+    TCA0.SINGLE.INTCTRL = TCA_SINGLE_OVF_bm; // Enable interrupt on overflow.
+    TCA0.SINGLE.EVCTRL  = 0;
+    TCA0.SINGLE.CTRLB   = 0x00;
+
+    // Make our timer interrupt higher priority than other interrupts.
+    CPUINT.LVL1VEC = TCA0_OVF_vect_num;
+
 }
 
 
 dali_result_t dali_transmit_cmd(uint8_t addr, uint8_t cmd) {
-    uint16_t shiftReg = addr << 8 | cmd;
+    shiftreg = addr << 8 | cmd;
+    half_bits_remaining = (16+1)*2;
     // Clear collision detected flag.
     collision_detected = false;
 
-    transmit_start();
-    for (int i = 0; i < 16 && !collision_detected; i++) {
-        if (shiftReg & (1 << 15)) {
-              transmit_low_half_bit();
-              transmit_high_half_bit(); 
-        } else {
-            transmit_high_half_bit();    
-            if (!collision_detected) {
-                transmit_low_half_bit();
-            }
-        }
-        shiftReg <<= 1;
-    }
-    if (!collision_detected) {
-        transmit_stop();
-    }
 
+    TCA0.SINGLE.CNT = 18; // Set the timer to be a bit quicker for the first half bit, to account for additional statements, and the overhead of the ISR.
+    TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm; // Enable the timer.
+    // Process first half of start bit (drive low), and set up next half-bit to be high.
+    DALI_PORT.OUTCLR = DALI_TX_bm;
+    next_output = 1;
+
+
+    // Wait for the bits to be transmitted.  We know we are finished when the timer is disabled.
+    while (TCA0.SINGLE.CTRLA > 0) {
+        ;
+    }
+    // Wait for the stop bits - send line high (done by timer), then wait for 2 bit periods (4 half bits)
+    _delay_us(833*2);
+    // Wikipedia says you need at east 2.45ms of idle..
+
+    
     if (collision_detected) {
         return DALI_COLLISION_DETECTED;
     } else {
         return DALI_OK;
     }
+}
+
+
+static dali_result_t read_bit_into_lsb(uint16_t *out) {
+    // Read initial value
+    uint8_t val = DALI_PORT.IN & DALI_RX_bm;
+
+    // Wait for transition to opposite value for half bit +/- 10%
+    // wait for transition (expecting none) for half bit +/- 10%
+}
+
+
+
+static dali_result_t read_start_bit() {
+    uint16_t tmp;
+    dali_result_t res = read_bit_into_lsb(&tmp);
+
+    if (res == DALI_OK && tmp & 0x01) {
+        return DALI_OK;
+    }
+}
+
+
+dali_result_t dali_receive(uint8_t *address, uint8_t *command) {
+    // If the bus is high, then its not the start of a packet.
+    if (DALI_PORT.IN & DALI_RX_bm) {
+        return DALI_NO_START_BIT;
+    }
+
+    dali_result_t res = DALI_OK;
+    res = read_start_bit();
+    uint16_t packet = 0;
+    for (int i = 0; res == DALI_OK && i < 16; i++) {
+        packet <<= 1;
+        res = read_bit_into_lsb(&packet);
+    }
+    return res;
 }

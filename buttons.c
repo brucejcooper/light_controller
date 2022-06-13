@@ -1,8 +1,3 @@
-/* 
-  DALI master, useable as a multi-switch controller.  Programmed (via UPDI, or UART?) to respond to button presses
-  by sending out DALI commands to dim 
-*/
-
 #include <avr/io.h>
 #include <util/delay.h>
 #include <inttypes.h>
@@ -71,7 +66,7 @@ uint8_t makeEvent(uint8_t button, button_event_t evt) {
 }
 
 
-// Set up a timer to go off every 1 millisecond
+// Set up a timer to go off every 10 milliseconds
 // Timer runs while one or more button is pressed.
 // Each time timer goes off, decrement next_button_timeout (unless not enabled for that button) - When it reaches zero, the action is triggered (potentially restarting the timer)
 
@@ -114,7 +109,7 @@ ISR(RTC_CNT_vect)
                             break;
                         case BTN_PRESSED:
                         case BTN_LONG_PRESSED:
-                            // TODO make it go both ways.
+                            // TODO make it go both ways.  Double click?  That requires delaying for single clicks.  Long then short?
                             queue_push(eventQueue, makeEvent(i, EVENT_DIMMER_DIM));
                             btn->state = BTN_LONG_PRESSED;
                             btn->ticks_remaining = MS_TO_TICKS(LONGPRESS_REPEAT);

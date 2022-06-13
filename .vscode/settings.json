@@ -6,7 +6,8 @@
         "sleep.h": "c",
         "delay.h": "c",
         "interrupt.h": "c",
-        "*.def": "c"
+        "*.def": "c",
+        "dali.h": "c"
     },
     "nrf-connect.topdir": "/home/bruce/dev/nrf/ncs"
 }

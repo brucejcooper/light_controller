@@ -1,5 +1,5 @@
 DEVICE     = attiny804
-CLOCK      = 20000000
+CLOCK      = 3333333
 PORT	   = /dev/ttyUSB0
 FILENAME   = main
 COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE)
