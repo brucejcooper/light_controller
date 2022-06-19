@@ -134,27 +134,6 @@ dali_result_t dali_transmit_cmd(uint8_t addr, uint8_t cmd) {
     }
 }
 
-
-static dali_result_t read_bit_into_lsb(uint16_t *out) {
-    // Read initial value
-    uint8_t val = DALI_PORT.IN & DALI_RX_bm;
-
-    // Wait for transition to opposite value for half bit +/- 10%
-    // wait for transition (expecting none) for half bit +/- 10%
-}
-
-
-
-static dali_result_t read_start_bit() {
-    uint16_t tmp;
-    dali_result_t res = read_bit_into_lsb(&tmp);
-
-    if (res == DALI_OK && tmp & 0x01) {
-        return DALI_OK;
-    }
-}
-
-
 // Only correct for clock of 3.33Mhz
 #define TICKS_TO_USEC(t)    (t*3/10)
 #define USEC_TO_TICKS(u)    (u*10/3)
@@ -199,11 +178,10 @@ pulsewidth_t wait_for_level_change(uint8_t *current_val) {
                 return INVALID_TOO_SHORT;
             } else if (pulse_length <= FULLTICK_MAX_TICKS) {
                 return FULL_BIT;
-            } else {
-                return INVALID_TOO_LONG;
             }
         }
     }
+    return INVALID_TOO_LONG;
 }
 
 
@@ -211,7 +189,6 @@ dali_result_t dali_receive(uint8_t *address, uint8_t *command) {
     dali_result_t res = DALI_CORRUPT_READ;
     uint8_t last_bit = 1;
     uint8_t current_val = 0;
-    uint8_t new_val;
     uint16_t shiftreg = 0;
     pulsewidth_t pulse_width;
 
