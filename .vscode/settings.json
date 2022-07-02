@@ -7,7 +7,9 @@
         "delay.h": "c",
         "interrupt.h": "c",
         "*.def": "c",
-        "dali.h": "c"
+        "dali.h": "c",
+        "atomic.h": "c",
+        "wdt.h": "c"
     },
     "nrf-connect.topdir": "/home/bruce/dev/nrf/ncs"
 }

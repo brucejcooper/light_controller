@@ -10,6 +10,7 @@
 #include <inttypes.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
+#include <avr/wdt.h>
 #include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
@@ -34,6 +35,19 @@ int mapActionToDaliCommand(button_event_t action) {
 
 int main(void)
 {
+    uint8_t evt;
+    queue_result_t res; 
+    dali_result_t dres;
+    int button;
+    button_event_t action;
+    uint8_t address;
+    uint8_t command;
+
+    // Write a WDT value, using the CCP method
+    // CCP = CCP_IOREG_gc;
+    // WDT.STATUS = WDT_LOCK_bm;
+    // WDT.CTRLA = WDT_PERIOD_1KCLK_gc; // 1 second.
+
     dali_init();
     queue_init(&event_queue, 10);
     buttons_init(&event_queue);
@@ -42,20 +56,16 @@ int main(void)
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     sei();
 
-    while (1)
-    {
-        uint8_t evt;
-        queue_result_t res; 
-        dali_result_t dres;
-        int button;
-        button_event_t action;
-        uint8_t address;
-        uint8_t command;
+
+
+    while (1) {
+        // wdt_reset();
 
         // dres = dali_receive(&address, &command);
         // if (dres == DALI_OK) {
-
+        //     // TODO deal with what we've read in as a command.
         // }
+
 
 
         res = queue_pop(&event_queue, &evt);
@@ -65,16 +75,15 @@ int main(void)
 
             address = mapButtonToAddress(button);
             command = mapActionToDaliCommand(action);
-
-            // debug();
-
             do {
                 dres = dali_transmit_cmd(address, command);
                 // TODO enforce required backoff if there was a collision - Random backoff time?
             } while (dres != DALI_OK);
             _delay_ms(5);
         } else {
-            // sleep_mode();
+            // TODO how to sleep with the WDT?  Disable it?
+            // We wait for either an edge interrupt on Read, or an edge interrupt on one of the buttons.
+            sleep_mode();
         }
     }
 }

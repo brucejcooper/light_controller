@@ -3,3 +3,7 @@ main.elf
 main.hex
 kicad/LightSwitch.sch-bak
 avr/
+kicad/LightSwitch-backups/
+kicad/#auto_saved_files#
+kicad/_autosave-LightSwitch.sch
+kicad/fp-info-cache
