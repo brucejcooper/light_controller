@@ -4,9 +4,11 @@
 #include "queue.h"
 
 typedef enum {
+  EVENT_NONE,
   EVENT_TOGGLE,
   EVENT_DIMMER_BRIGHTEN,
   EVENT_DIMMER_DIM,
+  EVENT_DOUBLE_CLICK,
 } button_event_t;
 
 extern void buttons_init(queue_t *q);

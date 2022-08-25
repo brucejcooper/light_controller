@@ -4,14 +4,14 @@
             "name": "AVR",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/avr/include"
+                "${workspaceFolder}/avr/avr/include"
             ],
             "defines": [
                 "__GNUC__=7",
                 "__GNUC_MINOR__=3",
                 "__ATtiny804__",
                 "__AVR_ATtiny804__",
-                "F_CPU=20000000"
+                "F_CPU=3333333"
             ],
             "compilerPath": "${workspaceFolder}/avr/bin/avr-gcc",
             "cStandard": "c11",

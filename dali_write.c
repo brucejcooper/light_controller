@@ -18,11 +18,6 @@ typedef enum  {
     ED_READ,
 } edgedetect_mode_t;
 
-#define HALFTICK_MIN_TICKS USEC_TO_TICKS(413-42)
-#define HALFTICK_MAX_TICKS USEC_TO_TICKS(413+42)
-#define FULLTICK_MIN_TICKS USEC_TO_TICKS(833-42)
-#define FULLTICK_MAX_TICKS USEC_TO_TICKS(833+42)
-
 
 volatile bool collision_detected = false;
 

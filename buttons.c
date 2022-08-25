@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include "queue.h"
 #include "buttons.h"
+#include "console.h"
 
 
 // Switch is on PB2
@@ -16,38 +17,126 @@
 // Debounce happens for 20 ms
 #define DEBOUNCE_PERIOD 20
 // Press becomes a long press after 1 sec (plus the debounce)
-#define LONGPRESS_DELAY 1000
+#define LONGPRESS_DELAY 600
 // Long press repeat happens every 250 ms once longpress starts
 #define LONGPRESS_REPEAT 250
 
+#define DOUBLE_CLICK_PERIOD 200
+
 #define MS_TO_TICKS(x) ((x)/10)
-
-
-/*
- * Events that can occur 
- * 1. a button short press (x 5 buttons) - GPIO interrupt, plus timers for debounce (too short a press should be ignored as a debounce)
- * 2. a button long press (x 5 buttons) - as above, but the timer is ongoing. 
- * 3. There is a DALI command to send (in the queue) and the bus is idle.
- * 4. a DALI receive starts - GPIO change interrupt plus timing (on the order of milliseconds).
- * 
- */
 
 #define NUM_BUTTONS (5)
 
-typedef enum {
-    BTN_RELEASED,
-    BTN_PRESSED_DEBOUNCE,
-    BTN_PRESSED,
-    BTN_LONG_PRESSED,
-    BTN_RELEASED_DEBOUNCE,
-} switchstate_t;
+
+typedef struct button_state_t button_state_t;
 
 typedef struct {
-    switchstate_t state;
+    const button_event_t action; 
+    const button_state_t *next;
+} state_transition_t;
+
+
+typedef struct button_state_t {
+    const uint16_t timeout;
+    const state_transition_t onTimeoutPressed;
+    const state_transition_t onTimeoutReleased;
+    const state_transition_t onToggle;
+} button_state_t;
+
+
+typedef struct button_t {
+    const button_state_t *state;
     uint16_t ticks_remaining;
     uint8_t mask;
+    uint16_t last_release;
 } button_t;
  
+
+
+#define NO_TRANSITION { .action = EVENT_NONE, .next = NULL }
+
+
+static const button_state_t idleState;
+static const button_state_t debounceState;
+static const button_state_t firstPressState;
+static const button_state_t firstClickReleasedState;
+static const button_state_t longPressedState;
+static const button_state_t debounceDoubleClickState;
+static const button_state_t doubleClickPressedState;
+static const button_state_t debounceReleasedState;
+static const button_state_t firstPressReleaseDebounceState;
+
+static const button_state_t idleState = {
+    .timeout = 0,
+    .onTimeoutPressed = NO_TRANSITION,
+    .onTimeoutReleased = NO_TRANSITION,
+    .onToggle = { .next = &debounceState },
+};
+
+static const button_state_t debounceState = {
+    .timeout = MS_TO_TICKS(DEBOUNCE_PERIOD),
+    .onTimeoutPressed = { .next = &firstPressState },
+    .onTimeoutReleased = { .next = &firstClickReleasedState },
+    .onToggle = NO_TRANSITION,
+};
+
+static const button_state_t firstPressState = {
+    .timeout = MS_TO_TICKS(LONGPRESS_DELAY),
+    .onTimeoutPressed = { .action = EVENT_DIMMER_BRIGHTEN, .next = &longPressedState },
+    .onTimeoutReleased = { .next = &firstPressReleaseDebounceState },
+    .onToggle = { .next = &firstPressReleaseDebounceState }, 
+};
+
+
+static const button_state_t firstPressReleaseDebounceState = {
+    .timeout = MS_TO_TICKS(DEBOUNCE_PERIOD),
+    .onTimeoutPressed = { .next = &doubleClickPressedState },
+    .onTimeoutReleased = { .next = &firstClickReleasedState },
+    .onToggle = NO_TRANSITION, 
+};
+
+
+// It is released, but we're not sure if its a double click or not yet.  Wait for up to DOUBLE_CLICK_PERIOD for another press.
+static const button_state_t firstClickReleasedState = {
+    .timeout = MS_TO_TICKS(DOUBLE_CLICK_PERIOD),
+    .onTimeoutPressed = { .next = &firstPressState }, // It would be odd to end up here.
+    .onTimeoutReleased = { .action = EVENT_TOGGLE, .next = &idleState }, // It timed out, so its a single click then release (TODO issue output)
+    .onToggle =  {.next = &debounceDoubleClickState }, 
+};
+
+// We've double clicked, but we're waiting for the line to settle.
+static const button_state_t debounceDoubleClickState = {
+    .timeout = MS_TO_TICKS(DEBOUNCE_PERIOD),
+    .onTimeoutPressed = { .action = EVENT_DOUBLE_CLICK, .next = &doubleClickPressedState },   // Still pressed after double click. 
+    .onTimeoutReleased = { .action = EVENT_DOUBLE_CLICK, .next = &debounceReleasedState }, // Was released during debounce, so its a normal double click -> idle.
+    .onToggle = NO_TRANSITION, 
+};
+
+
+static const button_state_t doubleClickPressedState = {
+    .timeout = MS_TO_TICKS(LONGPRESS_REPEAT),
+    .onTimeoutPressed = { .action =  EVENT_DIMMER_DIM }, 
+    .onTimeoutReleased = { .next = &debounceReleasedState },
+    .onToggle = { .next = &debounceReleasedState }, 
+};
+
+// We transition here when the button has been released and there are no more double clicks to worry about.
+static const button_state_t debounceReleasedState = {
+    .timeout = MS_TO_TICKS(DEBOUNCE_PERIOD),
+    .onTimeoutPressed = { .next = &firstPressState },
+    .onTimeoutReleased = { .next = &idleState },
+    .onToggle = NO_TRANSITION, 
+};
+
+static const button_state_t longPressedState = {
+    .timeout = MS_TO_TICKS(LONGPRESS_REPEAT),
+    .onTimeoutPressed = { .action = EVENT_DIMMER_BRIGHTEN },
+    .onTimeoutReleased = { .next = &debounceReleasedState },
+    .onToggle = { .next = &debounceReleasedState }, 
+};
+
+
+
 /**
  * @brief Timeout for when next action will happen 
  * if positive, this is the number of ticks until the next action for that button
@@ -66,6 +155,16 @@ uint8_t makeEvent(uint8_t button, button_event_t evt) {
 }
 
 
+void executeTransition(int pin, volatile button_t *btn, const state_transition_t *transition) {
+    if (transition->action != EVENT_NONE) {
+        queue_push(eventQueue, makeEvent(pin, transition->action));
+    }
+    if (transition->next) {
+        btn->state = transition->next;
+    }
+    btn->ticks_remaining = btn->state->timeout;
+}
+
 // Set up a timer to go off every 10 milliseconds
 // Timer runs while one or more button is pressed.
 // Each time timer goes off, decrement next_button_timeout (unless not enabled for that button) - When it reaches zero, the action is triggered (potentially restarting the timer)
@@ -74,50 +173,17 @@ uint8_t makeEvent(uint8_t button, button_event_t evt) {
 ISR(RTC_CNT_vect)
 {
     if (RTC.INTFLAGS & RTC_OVF_bm) {
-        RTC.INTFLAGS |= RTC_OVF_bm; // Clear flag
 
         for (int i = 0; i < NUM_BUTTONS; i++) {
             volatile button_t *btn = &buttons[i];
 
-            if (btn->ticks_remaining > 0) {
-                if (--(btn->ticks_remaining) == 0) {
-                    switch (btn->state) {
-                        case BTN_PRESSED_DEBOUNCE:
-                            if ((SWITCH_PORT.IN & btn->mask) == 0) {
-                                // Still Pressed
-                                btn->state = BTN_PRESSED;
-                                btn->ticks_remaining = MS_TO_TICKS(LONGPRESS_DELAY);
-                            } else {
-                                // released during debounce period
-                                btn->state = BTN_RELEASED;
-                                queue_push(eventQueue, makeEvent(i, EVENT_TOGGLE));
-
-                            }
-                            break;
-                        case BTN_RELEASED_DEBOUNCE:
-                            if (SWITCH_PORT.IN & btn->mask) {
-                                // Button still released
-                                btn->state = BTN_RELEASED;
-                            } else {
-                                // Button re-pressed during debounce.... 
-                                btn->state = BTN_PRESSED;
-                                btn->ticks_remaining = MS_TO_TICKS(LONGPRESS_DELAY);
-                            }
-                            break;
-                        case BTN_RELEASED:
-                            // Shouldn't happen.  Do nothing, and the timer will not re-start.
-                            break;
-                        case BTN_PRESSED:
-                        case BTN_LONG_PRESSED:
-                            // TODO make it go both ways.  Double click?  That requires delaying for single clicks.  Long then short?
-                            queue_push(eventQueue, makeEvent(i, EVENT_DIMMER_DIM));
-                            btn->state = BTN_LONG_PRESSED;
-                            btn->ticks_remaining = MS_TO_TICKS(LONGPRESS_REPEAT);
-                            break;
-                    }
-                }
+            if (btn->ticks_remaining > 0 && --(btn->ticks_remaining) == 0) {
+                executeTransition(i, btn, ((SWITCH_PORT.IN & btn->mask) == 0) 
+                                            ? &(btn->state->onTimeoutPressed) 
+                                            : &(btn->state->onTimeoutReleased));
             }
         }
+        RTC.INTFLAGS |= RTC_OVF_bm; // Clear flag
     }
 }
 
@@ -144,36 +210,9 @@ ISR(PORTB_PORT_vect)
 
         if(SWITCH_PORT.INTFLAGS & btn->mask) {
             // Clear the interrupt flag.
-            SWITCH_PORT.INTFLAGS &= btn->mask;          
+            SWITCH_PORT.INTFLAGS &= SWITCH_PORT.INTFLAGS;          
 
-            switch (btn->state) {
-                case BTN_PRESSED_DEBOUNCE:
-                case BTN_RELEASED_DEBOUNCE:
-                    // Do nothing during debounce period
-                    break;
-                case BTN_RELEASED:
-                    if ((SWITCH_PORT.IN & btn->mask) == 0) {
-                        // Button has been pressed
-                        btn->state = BTN_PRESSED_DEBOUNCE;
-                        btn->ticks_remaining = MS_TO_TICKS(DEBOUNCE_PERIOD);
-                    }
-                    break;
-                case BTN_PRESSED:
-                    if (SWITCH_PORT.IN & btn->mask) {
-                        // Button has been released from its pressed state before long press kicked in
-                        queue_push(eventQueue, makeEvent(pin, EVENT_TOGGLE));
-                        btn->state = BTN_RELEASED_DEBOUNCE;
-                        btn->ticks_remaining = MS_TO_TICKS(DEBOUNCE_PERIOD);
-                    }
-                    break;
-                case BTN_LONG_PRESSED:
-                    if (SWITCH_PORT.IN & btn->mask) {
-                        // Button has been released
-                        btn->state = BTN_RELEASED_DEBOUNCE;
-                        btn->ticks_remaining = MS_TO_TICKS(DEBOUNCE_PERIOD);
-                    }
-                    break;
-            }
+            executeTransition(pin, btn, &(btn->state->onToggle));
         }
     }
 }
@@ -203,17 +242,18 @@ void buttons_init(queue_t *q) {
     // combine all the button masks into one mask.
     uint8_t mask = 0;
     buttons[0].mask = PIN1_bm;
-    buttons[1].mask = PIN2_bm;
-    buttons[2].mask = PIN3_bm;
-    buttons[3].mask = PIN4_bm;
-    buttons[4].mask = PIN5_bm;
+    buttons[1].mask = PIN3_bm;
+    buttons[2].mask = PIN4_bm;
+    buttons[3].mask = PIN5_bm;
+    buttons[4].mask = PIN6_bm;
     for (int i = 0; i < NUM_BUTTONS; i++) {
-        buttons[i].state = BTN_RELEASED;
+        buttons[i].state = &idleState;
         buttons[i].ticks_remaining = 0;
+        buttons[i].last_release = 0;
         mask |= buttons[i].mask;
     }
-    SWITCH_PORT.DIRCLR = mask; // Set all buttons as inputs.
-    SWITCH_PORT.PIN2CTRL = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc; /* enable internal pull-up, and interrupts on both edges */
+    SWITCH_PORT.DIRCLR = PIN1_bm; // Set all buttons as inputs.
+    SWITCH_PORT.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc; /* enable internal pull-up, and interrupts on both edges */
 
     initialise_rtc();
 }

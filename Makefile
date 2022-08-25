@@ -21,8 +21,9 @@ build:
 	$(COMPILE) -c dali_read.c -o dali_read.o
 	$(COMPILE) -c dali_write.c -o dali_write.o
 	$(COMPILE) -c queue.c -o queue.o
-	$(COMPILE) -o $(FILENAME).elf main.o buttons.o dali_read.o dali_write.o queue.o
-	avr-objcopy -j .text -j .data -O ihex $(FILENAME).elf $(FILENAME).hex
+	$(COMPILE) -c console.c -o console.o
+	$(COMPILE) -o $(FILENAME).elf main.o buttons.o dali_read.o dali_write.o queue.o console.o
+	avr-objcopy -R .eeprom -R .fuse -R .lock -R .signature -O ihex $(FILENAME).elf $(FILENAME).hex
 	avr-size --format=avr --mcu=$(DEVICE) $(FILENAME).elf
 
 erase:
@@ -33,6 +34,6 @@ upload:
 	pymcuprog -t uart -u $(PORT) -d $(DEVICE) write -f $(FILENAME).hex --verify
 
 clean:
-	rm -f main.o buttons.o dali_read.o dali_write.o queue.o
+	rm -f main.o buttons.o dali_read.o dali_write.o queue.o console.o
 	rm -f main.elf
 	rm -f main.hex
