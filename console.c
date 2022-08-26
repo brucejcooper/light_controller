@@ -8,9 +8,6 @@
 
 #define USART0_BAUD_RATE(BAUD_RATE) ((float)(F_CPU * 64 / (16 * (float)BAUD_RATE)) + 0.5)
 
-char inputBuffer[80];
-char *inptr = inputBuffer;
-
 int printCHAR(char character, FILE *stream);
 static FILE mystdout = FDEV_SETUP_STREAM(printCHAR, NULL, _FDEV_SETUP_WRITE);
 
@@ -46,9 +43,11 @@ void log_info(char *str, ...) {
 
 
 void console_init() {
+    // Use alternate pins, so we don't clash with TCA0
+    PORTMUX.CTRLB |= PORTMUX_USART0_bm;
 
     // Configure TX pin as an output, defaulting to high.
-    PORTB.DIRSET = PIN2_bm;
+    PORTA.DIRSET = PIN1_bm;
 
     // Baud rate.
     USART0.BAUD = USART0_BAUD_RATE(9600);

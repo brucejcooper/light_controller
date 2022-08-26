@@ -12,6 +12,7 @@
 typedef enum { 
     DALI_OK = 0, 
     DALI_COLLISION_DETECTED,
+    DALI_ALREADY_TRANSMITTING,
     DALI_NO_START_BIT,
     DALI_NOT_FOR_ME,
     DALI_CORRUPT_READ,
@@ -20,10 +21,11 @@ typedef enum {
 
 // Only correct for clock of 3.33Mhz
 #define TICKS_TO_USEC(t)    (t*3/10)
-#define USEC_TO_TICKS(u)    (u*10/3)
+#define USEC_TO_TICKS(u)    (((uint16_t)u)*10/3)
 
 #define DALI_BIT_USECS              (833)
 #define DALI_HALF_BIT_USECS         (DALI_BIT_USECS/2)
+#define DALI_STOP_BITS_USECS        (DALI_BIT_USECS*2)
 #define DALI_READ_TOLERANCE_USECS   (42)
 
 #define HALFTICK_MIN_TICKS          USEC_TO_TICKS(DALI_HALF_BIT_USECS-DALI_READ_TOLERANCE_USECS)
@@ -40,8 +42,7 @@ typedef enum {
 
 extern void dali_init();
 extern dali_result_t dali_transmit_cmd(uint8_t addr, uint8_t cmd);
-extern void dali_debug_blink();
 extern dali_result_t dali_receive(uint8_t *address, uint8_t *command);
-
+extern void dali_wait_for_transmission();
 
 #endif

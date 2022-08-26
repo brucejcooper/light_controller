@@ -25,7 +25,7 @@
 
 #define MS_TO_TICKS(x) ((x)/10)
 
-#define NUM_BUTTONS (5)
+#define NUM_BUTTONS (1)
 
 
 typedef struct button_state_t button_state_t;
@@ -49,6 +49,7 @@ typedef struct button_t {
     uint16_t ticks_remaining;
     uint8_t mask;
     uint16_t last_release;
+    uint8_t val;
 } button_t;
  
 
@@ -210,7 +211,7 @@ ISR(PORTB_PORT_vect)
 
         if(SWITCH_PORT.INTFLAGS & btn->mask) {
             // Clear the interrupt flag.
-            SWITCH_PORT.INTFLAGS &= SWITCH_PORT.INTFLAGS;          
+            SWITCH_PORT.INTFLAGS = btn->mask;          
 
             executeTransition(pin, btn, &(btn->state->onToggle));
         }
@@ -242,20 +243,26 @@ void buttons_init(queue_t *q) {
     // combine all the button masks into one mask.
     uint8_t mask = 0;
     buttons[0].mask = PIN1_bm;
-    buttons[1].mask = PIN3_bm;
-    buttons[2].mask = PIN4_bm;
-    buttons[3].mask = PIN5_bm;
-    buttons[4].mask = PIN6_bm;
+    // buttons[1].mask = PIN3_bm;
+    // buttons[2].mask = PIN4_bm;
+    // buttons[3].mask = PIN5_bm;
+    // buttons[4].mask = PIN6_bm;
     for (int i = 0; i < NUM_BUTTONS; i++) {
         buttons[i].state = &idleState;
         buttons[i].ticks_remaining = 0;
         buttons[i].last_release = 0;
         mask |= buttons[i].mask;
     }
-    SWITCH_PORT.DIRCLR = PIN1_bm; // Set all buttons as inputs.
-    SWITCH_PORT.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc; /* enable internal pull-up, and interrupts on both edges */
-
     initialise_rtc();
+
+
+    SWITCH_PORT.DIRCLR = mask; // Set all buttons as inputs.
+    for (int i = 0; i < NUM_BUTTONS; i++) {
+        buttons[i].val = SWITCH_PORT.IN & buttons[i].mask ? 1 : 0;
+
+    }
+    // Enable PullUp.
+    SWITCH_PORT.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
 }
 
 

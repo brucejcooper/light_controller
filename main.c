@@ -32,7 +32,7 @@ int mapButtonToAddress(int button) {
 
 int mapActionToDaliCommand(button_event_t action) {
     // TODO implement me.
-    return 0xad;
+    return 0xae;
 }
 
 int main(void)
@@ -103,7 +103,10 @@ int main(void)
             address = mapButtonToAddress(button);
             command = mapActionToDaliCommand(action);
             do {
+                log_info("Transmitting 0x%02x%02x", address, command);
                 dres = dali_transmit_cmd(address, command);
+                dali_wait_for_transmission();
+                log_info("Done transmitting");
                 // TODO enforce required backoff if there was a collision - Random backoff time?
             } while (dres != DALI_OK);
             _delay_ms(5);
