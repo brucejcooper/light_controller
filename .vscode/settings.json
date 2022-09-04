@@ -9,6 +9,7 @@
         "*.def": "c",
         "dali.h": "c",
         "atomic.h": "c",
-        "wdt.h": "c"
+        "wdt.h": "c",
+        "stdbool.h": "c"
     },
 }

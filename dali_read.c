@@ -51,6 +51,11 @@ ISR(TCB0_INT_vect)
 }
 
 
+uint8_t dali_read_bus() {
+    return DALI_PORT.IN & DALI_RX_bm ? 1 : 0;
+}
+
+
 pulsewidth_t time_pulse(uint8_t *current_val) {    
     // is there a race condition here on compare to CNT?  If there is, it'll just loop again, and you'll be fine.
     for (current_pulse_width = PULSE_TIMING; current_pulse_width == PULSE_TIMING && TCB0.CNT < FULLTICK_MAX_TICKS; ) { 

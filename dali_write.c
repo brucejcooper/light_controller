@@ -17,12 +17,49 @@
 // At maximum, we need two pulses for each bit, pluse one extra for the final clean up, plus one stop half bit, plus stop bits.
 static volatile uint16_t pulsePeriods[35];
 static volatile uint16_t *pulsePtr;
-static volatile bool transmitting = false;
+volatile bool dali_transmitting = false;
+
+/** We want to know if we're currently outputting a short or a release, so that we can do collision detection when released
+ * To do this, we track the current output in this variable.
+ */
+static volatile uint8_t currentOutput;
+
+void dali_disable_write() {
+    // This should have already been done by the stop bits, but just to be sure.
+    TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc | TCA_SINGLE_CMP2EN_bm;   
+    // We're done! Disable the timer. 
+    TCA0.SINGLE.CTRLA = 0; 
+    TCA0.SINGLE.CTRLC = 0; 
+    TCA0.SINGLE.INTCTRL = 0;
+    dali_transmitting = false;
+}
 
 
 
+/**
+ * This is set up to go off just before a transition from low to high (inverted in real output), and is used to sample
+ * the line before toggling, to ensure that there aren't any collisions.
+ * 
+ */
+ISR(TCA0_CMP1_vect) {
+    if (dali_read_bus()) {
+        // The bus is shorted, which indicates that there is a collision.
+        dali_disable_write();
+        // TODO signal to the user that its gone wrong!
+        log_info("detected collision");
+    }
+    // Clear interrupt.
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP1_bm;
+}
+
+
+/**
+ * Called after each time the timer flips the output.  We update the time for the next flip, and check
+ * to see when we're finished.
+ */
 ISR(TCA0_CMP2_vect) {
     uint16_t newPeriod = *pulsePtr++;
+    currentOutput = !currentOutput;
 
     if (newPeriod) {
         // Update both CMP0 and CMP2 to the new waveform period.
@@ -34,64 +71,81 @@ ISR(TCA0_CMP2_vect) {
             TCA0.SINGLE.CTRLC = 0; 
             TCA0.SINGLE.CTRLB   = TCA_SINGLE_WGMODE_NORMAL_gc | TCA_SINGLE_CMP2EN_bm;   
         }
+
+        if (currentOutput == 0) {
+            // We want to check for collision 10 microseconds before we flip it anyway.
+            TCA0.SINGLE.CMP1 = newPeriod - USEC_TO_TICKS(10);
+        } else {
+            // We set CMP1 to a higher value than CMP0, so it will never fire.
+            TCA0.SINGLE.CMP1 = newPeriod + 100;
+        }
     } else {
-        // We're done! Disable the timer. 
-        TCA0.SINGLE.CTRLA = 0; 
-        transmitting = false;
+        // Done!
+        dali_disable_write();
     }
     // Clear interrupt flag.
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP2_bm;
 }
 
+
+
 void dali_wait_for_transmission() {
-    while (transmitting) {
-        ; // Do nothing.
+    while (dali_transmitting) {
+        // TODO make it sleep
+        ; // Do nothing. 
     }
 }
 
 
 void dali_init() {
 
-    // Output is PA2 (WO2) - Initially low (which will be inverted by the transistor) 
+    // Output is PB2 (WO2) - Initially low (which will be inverted by the transistor) 
     // whenever we're not waveform generating, the pin will return to this level.
     PORTB.OUTCLR = PIN2_bm;
     PORTB.DIRSET = PIN2_bm;
 
+    // Dali read pin should have its pullup enabled, and be an input.
+    PORTA.DIRCLR = PIN5_bm;
+    PORTA.PIN5CTRL = PORT_PULLUPEN_bm;
+
     // Ensure the timer is stopped;
     TCA0.SINGLE.CTRLA = 0;     
 
-    // Set up timer TCA0 for DALI transmission.  Interrupt on CMP2
+    // Set up timer TCA0 for DALI transmission. 
     TCA0.SINGLE.EVCTRL  = 0;
-    TCA0.SINGLE.INTCTRL  = TCA_SINGLE_CMP2_bm;
-}
 
+    // Make the TCA.CMP1 interrupt the highest priority, so that it goes off ASAP after the timer goes off.
+}
 
 
 dali_result_t dali_transmit_cmd(uint8_t addr, uint8_t cmd) {
 
-    if (transmitting) {
+    if (dali_transmitting) {
         return DALI_ALREADY_TRANSMITTING;
     }
 
-    // TODO Check to see that the bus is high (not transmitting), and hasn't been for some time 
+
+    // Check to see that the bus is high (somebody else transmitting), TODO and hasn't been for some time 
+    if (dali_read_bus()) {
+        return DALI_COLLISION_DETECTED;        
+    }
 
 
     pulsePtr = pulsePeriods;
     // Reset the clock.
     TCA0.SINGLE.CNT  = 0;
 
-    // BEfore we start messing with stuff, make sure the timer is off
+    // Before we start messing with stuff, make sure the timer is off
     TCA0.SINGLE.CTRLA = 0;    
-
     // Turn on Output Waveform Generation on WO2 only
     TCA0.SINGLE.CTRLC = TCA_SINGLE_CMP2OV_bm;    
     // Initial half bit is always a half low pulse (followed by a half high pulse).
-    TCA0.SINGLE.CMP2 = TCA0.SINGLE.CMP0 = USEC_TO_TICKS(DALI_HALF_BIT_USECS) - 345;
-    // Put us in Frequency Mode, and enabling CMP2
-    TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_FRQ_gc | TCA_SINGLE_CMP2EN_bm;
-
-
-    
+    // We take a bit off the initial timer, to allow for timer startup delay.  This was eyeballed with a logic analyser
+    TCA0.SINGLE.CMP2 = TCA0.SINGLE.CMP0 = USEC_TO_TICKS(DALI_HALF_BIT_USECS) - 5;
+    TCA0.SINGLE.CMP1 = TCA0.SINGLE.CMP0 + 100; // Effectively disabled.
+    // Interrupt on CMP1 for collision detect, CMP2 to update the period
+    TCA0.SINGLE.INTCTRL  = TCA_SINGLE_CMP1_bm | TCA_SINGLE_CMP2_bm;
+ 
     uint8_t lastBit = 1;
     uint16_t buf = addr << 8 | cmd;
     
@@ -125,9 +179,18 @@ dali_result_t dali_transmit_cmd(uint8_t addr, uint8_t cmd) {
     *pulsePtr++ = 0;
     pulsePtr = pulsePeriods;
 
-    transmitting = true;
+    dali_transmitting = true;
     // Set off the first half of the start bit by dragging the output low and turning on the timer.
     // PORTB.OUTSET = PIN2_bm;
+    // Put us in Frequency Mode, and enabling CMP2
+    currentOutput = 1;
+
+    // Clear out any existing interrupts
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP1_bm | TCA_SINGLE_CMP1_bm;
+
+    // This will immediately drive the output signal high
+    TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_FRQ_gc | TCA_SINGLE_CMP2EN_bm;
+    // Now start the timer.
     TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm; 
 
     return DALI_OK;

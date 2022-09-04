@@ -21,10 +21,11 @@ typedef enum {
 
 // Only correct for clock of 3.33Mhz
 #define TICKS_TO_USEC(t)    (t*3/10)
-#define USEC_TO_TICKS(u)    (((uint16_t)u)*10/3)
+#define USEC_TO_TICKS(u)    ((uint16_t) (((float)u)*(F_CPU/1000000.0) + 0.5))
 
-#define DALI_BIT_USECS              (833)
-#define DALI_HALF_BIT_USECS         (DALI_BIT_USECS/2)
+#define DALI_BAUD                   (1200)
+#define DALI_BIT_USECS              (1000000.0/DALI_BAUD)
+#define DALI_HALF_BIT_USECS         (DALI_BIT_USECS/2.0)
 #define DALI_STOP_BITS_USECS        (DALI_BIT_USECS*2)
 #define DALI_READ_TOLERANCE_USECS   (42)
 
@@ -36,13 +37,18 @@ typedef enum {
 
 // The DALI configuration - PA4 for transmit - PA3 for receive.
 #define DALI_PORT       PORTA
-#define DALI_RX_bm      PIN3_bm
-#define DALI_TX_bm      PIN4_bm
+#define DALI_RX_bm      PIN5_bm
 
 
 extern void dali_init();
 extern dali_result_t dali_transmit_cmd(uint8_t addr, uint8_t cmd);
 extern dali_result_t dali_receive(uint8_t *address, uint8_t *command);
 extern void dali_wait_for_transmission();
+void dali_disable_write();
+uint8_t dali_read_bus();
+
+
+volatile bool dali_transmitting;
+
 
 #endif
