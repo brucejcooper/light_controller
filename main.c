@@ -66,7 +66,7 @@ int main(void)
     buttons_init(&event_queue);
 
 
-    set_sleep_mode(SLEEP_MODE_IDLE);
+    set_sleep_mode(SLEEP_MODE_STANDBY);
     sei();
 
     log_info("Started");

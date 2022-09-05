@@ -52,7 +52,7 @@ ISR(TCB0_INT_vect)
 
 
 uint8_t dali_read_bus() {
-    return DALI_PORT.IN & DALI_RX_bm ? 1 : 0;
+    return  AC0_STATUS & AC_STATE_bm ? 0 : 1; //DALI_PORT.IN & DALI_RX_bm ? 1 : 0;
 }
 
 

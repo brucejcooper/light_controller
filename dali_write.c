@@ -87,6 +87,12 @@ ISR(TCA0_CMP2_vect) {
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP2_bm;
 }
 
+ISR(AC0_AC_vect) {
+    // Clear the interrupt flag
+    AC0_STATUS = AC_CMP_bm;
+}
+
+
 
 
 void dali_wait_for_transmission() {
@@ -104,9 +110,17 @@ void dali_init() {
     PORTB.OUTCLR = PIN2_bm;
     PORTB.DIRSET = PIN2_bm;
 
-    // Dali read pin should have its pullup enabled, and be an input.
-    PORTA.DIRCLR = PIN5_bm;
-    PORTA.PIN5CTRL = PORT_PULLUPEN_bm;
+    // New Dali read pin is PA7 - used in AC mode, with a 0.55V reference voltage.
+    PORTA.DIRCLR = PIN7_bm;
+    // Analog comparator doesn't work unless you disable the port's GPIO.
+    PORTA.PIN7CTRL = PORT_ISC_INPUT_DISABLE_gc;
+
+    // Set the Reference Voltage to 0.55V.  With voltage division, this equals a real threshold of 25.3/3.3 * 0.55 = 4.2V and consumes about 16V/25300 = 632uA
+    VREF.CTRLA = VREF_DAC0REFSEL_0V55_gc;
+    AC0_MUXCTRLA = AC_MUXPOS_PIN0_gc | AC_MUXNEG_VREF_gc;
+    AC0_CTRLA = AC_INTMODE_NEGEDGE_gc | AC_HYSMODE_10mV_gc | AC_ENABLE_bm;
+
+
 
     // Ensure the timer is stopped;
     TCA0.SINGLE.CTRLA = 0;     
