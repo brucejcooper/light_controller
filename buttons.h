@@ -12,7 +12,7 @@ typedef enum {
 
 #define NUM_BUTTONS (1)
 
-extern void buttons_init(queue_t *q);
+extern void buttons_init();
 extern bool scan_buttons();
 void buttons_set_wake_from_sleep_enabled(bool enabled);
 

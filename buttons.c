@@ -39,7 +39,6 @@ typedef struct button_t {
  * if negative, then timer is disabled for that button.
  */
 button_t buttons[NUM_BUTTONS];
-queue_t *eventQueue;
 
 button_event_t button_idle(button_t *btn, uint8_t newVal);
 button_event_t button_debounce(button_t *btn, uint8_t newVal);
@@ -88,8 +87,7 @@ static void initialise_rtc() {
 }
 
 
-void buttons_init(queue_t *q) {
-    eventQueue = q;
+void buttons_init() {
     // combine all the button masks into one mask.
     uint8_t mask = 0;
     buttons[0].mask = PIN6_bm;

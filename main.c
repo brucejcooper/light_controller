@@ -22,8 +22,6 @@
 
 
 
-queue_t event_queue;
-
 
 int mapButtonToAddress(int button) {
     // TODO implement me.
@@ -35,15 +33,12 @@ int mapActionToDaliCommand(button_event_t action) {
     return 0xae;
 }
 
-int main(void)
-{
-    // uint8_t evt;
-    // queue_result_t res; 
+void cmdTransmitted(bool collision) {
+    dali_idle_state_enter();
+}
+
+int main(void) {
     dali_result_t dres;
-    // int button;
-    // button_event_t action;
-    // uint8_t address;
-    // uint8_t command;
     button_event_t events[NUM_BUTTONS];
     bool allButtonsIdle;
 
@@ -58,12 +53,8 @@ int main(void)
     PORTA.OUTSET = PIN7_bm;
     PORTA.DIRSET = PIN7_bm;
 
-
-
-
     dali_init();
-    queue_init(&event_queue, 10);
-    buttons_init(&event_queue);
+    buttons_init();
 
 
     set_sleep_mode(SLEEP_MODE_STANDBY);
@@ -81,11 +72,11 @@ int main(void)
                 break;
                 case EVENT_PRESSED:
                 log_info("Button %d pressed", i);
-                dres = dali_transmit_cmd(0xFE, 0xED);
+                dres = dali_queue_transmit(0xFEED, 16, cmdTransmitted);
+
                 if (dres != DALI_OK) {
                     log_info("error transmitting: %d", dres);
                 }
-                dali_wait_for_transmission();
                 break;
                 case EVENT_LONG_PRESSED:
                 log_info("Button %d long pressed", i);
@@ -96,13 +87,13 @@ int main(void)
             }
         }
 
-        if (allButtonsIdle && !dali_transmitting) {
-            buttons_set_wake_from_sleep_enabled(true);
-            sleep_enable();
-            sleep_cpu();
-            sleep_disable();
-            buttons_set_wake_from_sleep_enabled(false);
-        }
+        // if (allButtonsIdle && !dali_transmitting) {
+        //     buttons_set_wake_from_sleep_enabled(true);
+        //     sleep_enable();
+        //     sleep_cpu();
+        //     sleep_disable();
+        //     buttons_set_wake_from_sleep_enabled(false);
+        // }
 
         // dres = dali_receive(&address, &command);
         // if (dres == DALI_OK) {
@@ -147,4 +138,5 @@ int main(void)
         //     sleep_cpu();
         // }
     }
+    return 0;
 }

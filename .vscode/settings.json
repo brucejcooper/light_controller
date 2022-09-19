@@ -10,6 +10,7 @@
         "dali.h": "c",
         "atomic.h": "c",
         "wdt.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "queue.h": "c"
     },
 }

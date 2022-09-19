@@ -1,0 +1,1 @@
+Fetched from [This Link](https://www.ti.com/lit/an/slaa422a/slaa422a.pdf)
