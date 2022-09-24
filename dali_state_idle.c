@@ -30,12 +30,13 @@ static bool idle;
 static bool respondToCommand;
 static uint8_t response;
 
-void check_for_commands_to_send();
+static void check_for_commands_to_send();
 
 
 static void cleanup() {
     // Disable the AC0 Interrupt
     dali_on_linechange(NULL);
+    idle = false;
 }
 
 /**
@@ -75,13 +76,12 @@ dali_result_t dali_queue_transmit(uint32_t data, uint8_t numBits, dali_transmit_
 }
 
 
-void check_for_commands_to_send() {
+static void check_for_commands_to_send() {
     dali_command_t *cmd = commandQueueHead;
 
     if (cmd != NULL) {
         // A command has been enqueued. 
         commandQueueHead = commandQueueHead->next;
-        idle = false;
         cleanup();
         dali_transmitting_state_enter(cmd->data, cmd->numBits, cmd->responseHandler);
         free(cmd);
@@ -90,6 +90,7 @@ void check_for_commands_to_send() {
 
 
 static void transmitComplete(bool conflict) {
+    USART0_sendChar(conflict);
     dali_idle_state_enter();
 }
 
@@ -99,8 +100,6 @@ static void transmitResponse() {
 
 
 static void process_received_dali_transmission(uint32_t data, uint8_t numBits) {
-    idle = false;
-
     cleanup();
     log_info("CMD[%d]%x", numBits, data);
 
@@ -128,8 +127,7 @@ static void process_received_dali_transmission(uint32_t data, uint8_t numBits) {
 void daliCommandStarted() {
     // We've started receiving;
     cleanup();
-    dali_state_receiving_start();
-    dali_on_linechange(NULL);
+    dali_state_receiving_enter();
 }
 
 void dali_idle_state_enter() {

@@ -27,9 +27,9 @@ void dali_init() {
     PORTA.PIN7CTRL = PORT_ISC_INPUT_DISABLE_gc;
 
     // Set the Reference Voltage to 0.55V.  With voltage division, this equals a real threshold of 25.3/3.3 * 0.55 = 4.2V and consumes about 16V/25300 = 632uA
-    VREF.CTRLA = VREF_DAC0REFSEL_0V55_gc;
+    VREF.CTRLA = VREF_DAC0REFSEL_1V1_gc;
     AC0.MUXCTRLA = AC_MUXPOS_PIN0_gc | AC_MUXNEG_VREF_gc;
-    AC0.CTRLA = AC_RUNSTDBY_bm | AC_INTMODE_BOTHEDGE_gc | AC_HYSMODE_50mV_gc | AC_ENABLE_bm; 
+    AC0.CTRLA = AC_RUNSTDBY_bm | AC_INTMODE_NEGEDGE_gc | AC_HYSMODE_50mV_gc | AC_ENABLE_bm; 
 
 
     // Set up event systemt to route AC events to channel 0.
@@ -70,7 +70,7 @@ ISR(AC0_AC_vect) {
  * 
  * @return uint8_t 1 for shorted, 0 for released...
  */
-uint8_t dali_read_bus() {
+uint8_t dali_is_bus_shorted() {
     return  AC0.STATUS & AC_STATE_bm ? 0 : 1;
 }
 
@@ -79,4 +79,5 @@ uint8_t dali_read_bus() {
 void dali_on_linechange(void (*callback)()) {
     AC0.INTCTRL = callback ? AC_CMP_bm : 0;
     ac_isr_callback = callback;
+    AC0.STATUS = AC_CMP_bm; // Clear any pending interrupts.
 }

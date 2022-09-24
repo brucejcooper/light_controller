@@ -157,10 +157,10 @@ void dali_state_receiving_prepare(callback_t callback) {
     TCB0.CTRLB = TCB_CNTMODE_FRQ_gc; // Put it in Capture Frequency Measurement mode.
     TCB0.EVCTRL = TCB_CAPTEI_bm; // Waiting for a positive edge to start with.
 
-
     // We'll also use TCA0 to capture timeouts. We expect each pulse to be either PULSE_HALF_BIT or PULSE_FULL_BIT long.
     // If we get a value longer than PULSE_INVALID_TOO_LONG then we enter into an error state.
 
+    // Configure, but do not turn on, the timer. 
     on_timeout(PULSE_INVALID_TOO_LONG, timerOverflow);
 }
 
@@ -172,8 +172,9 @@ void dali_state_receiving_prepare(callback_t callback) {
  * 
  * We also expect dali_state_receiving_prepare to have been called before this one.
  */
-void dali_state_receiving_start() {
+void dali_state_receiving_enter() {
     USART0_sendChar('R');
+    AC0.STATUS = AC_CMP_bm; // Remove any existing interrupt flags.
     AC0.INTCTRL = AC_CMP_bm; // Turn on interrupts for AC0.
     TCB0.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm; // Start TCB0 for pulse width timing
     start_timeout();

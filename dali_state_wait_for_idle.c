@@ -30,8 +30,8 @@ static void onTimeout() {
 
 
 static void startReceivingResponse() {
-    if (dali_read_bus()) {
-        // Its shorted. Disable the timer. We will test again next time we get a toggle ISR.
+    if (dali_is_bus_shorted()) {
+        // Disable the timer. We will test again next time we get a toggle ISR.
         cancel_timeout();
     } else {
         // Set up a timer to go off if we don't receive a positive edge within the threshold period.

@@ -52,7 +52,7 @@ typedef void (*dali_transmit_completed_callback_t)(bool collision);
 typedef void (*dali_response_callback_t)(bool responseReceived, uint8_t response);
 
 extern void dali_init();
-uint8_t dali_read_bus();
+uint8_t dali_is_bus_shorted();
 
 dali_result_t dali_queue_transmit(uint32_t data, uint8_t numBits, dali_transmit_completed_callback_t responseCallback);
 
@@ -68,7 +68,7 @@ void dali_on_linechange(void (*callback)());
 
 // Receiving state.
 void dali_state_receiving_prepare(void (*callback)(uint32_t data, uint8_t numBits));
-void dali_state_receiving_start();
+void dali_state_receiving_enter();
 
 
 void dali_wait_for_response_state_enter(dali_response_callback_t responseCallback);

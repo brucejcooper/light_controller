@@ -32,6 +32,8 @@ void update_timeout(uint16_t to) {
 void on_timeout(uint16_t timeout, callback_t callback) {
     timeoutCallback = callback;
 
+    TCA0.SINGLE.CTRLA = 0;
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; 
     TCA0.SINGLE.PER = timeout; // Send ISR when clock reaches PER.
     TCA0.SINGLE.INTCTRL = TCA_SINGLE_OVF_bm; // Enable OVF interrupt.
     TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc; // normal counter mode, no output.

@@ -33,11 +33,11 @@ static inline void disable_output() {
 }
 
 static inline void cleanup() {
+    TCA0.SINGLE.CTRLA = 0; 
     // This should have already been done by the stop bits, but just to be sure.
     disable_output();
-    // We're done! Disable the timer. 
-    TCA0.SINGLE.CTRLA = 0; 
     TCA0.SINGLE.INTCTRL = 0; // Turn off all interrupts.
+    // We're done! Disable the timer. 
     TCA0.SINGLE.CNT = 0;
 }
 
@@ -49,9 +49,10 @@ static inline void cleanup() {
  * 
  */
 ISR(TCA0_CMP1_vect) {
-    if (dali_read_bus()) {
-        // The bus is shorted, which indicates that there is a collision. go into failsafe mode.
+    if (dali_is_bus_shorted()) {
+        // that there is a collision. go into failsafe mode.
         cleanup();
+        USART0_sendChar('!');
         completionCallback(true);
     }
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP1_bm;
@@ -116,7 +117,7 @@ ISR(TCA0_CMP2_vect) {
     }
     if (newPeriod) {
         TCA0.SINGLE.CMP0 = TCA0.SINGLE.CMP2 = newPeriod;
-        TCA0.SINGLE.CMP1 = collisionDetect ? newPeriod - 10 : newPeriod + 10;
+        TCA0.SINGLE.CMP1 =/* collisionDetect ? newPeriod - USEC_TO_TICKS(8) :*/ newPeriod + USEC_TO_TICKS(8);
     }
     // Clear interrupt flag.
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP2_bm;
@@ -148,7 +149,6 @@ extern void dali_transmitting_state_enter(uint32_t data, uint8_t numBits, dali_t
 
     shiftReg = data << (32-numBits);
     halfBitsLeft = (int8_t) numBits * 2;    
-
     // Set off the first half of the start bit by dragging the output low and turning on the timer.
     // Put us in Frequency Mode, and enabling CMP2
     lastBit = 1;

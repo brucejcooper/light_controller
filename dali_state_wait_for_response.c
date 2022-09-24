@@ -43,7 +43,7 @@ static void responseReceived(uint32_t data, uint8_t numBits) {
 
 
 static void startReceivingResponse() {
-    dali_state_receiving_start();
+    dali_state_receiving_enter();
 }
 
 

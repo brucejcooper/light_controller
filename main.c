@@ -47,23 +47,21 @@ int main(void) {
     // WDT.STATUS = WDT_LOCK_bm;
     // WDT.CTRLA = WDT_PERIOD_1KCLK_gc; // 1 second.
 
-    console_init();
 
-    // Start with the LED turned off
-    PORTA.OUTSET = PIN7_bm;
-    PORTA.DIRSET = PIN7_bm;
+    console_init();
+    log_info("Started");
+
 
     dali_init();
     buttons_init();
 
-
     set_sleep_mode(SLEEP_MODE_STANDBY);
     sei();
 
-    log_info("Started");
 
 
     while (1) {
+
         // wdt_reset();
         allButtonsIdle = scan_buttons(events);
         for (int i = 0; i < NUM_BUTTONS; i++) {
