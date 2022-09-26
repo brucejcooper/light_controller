@@ -5,7 +5,8 @@ FILENAME   = main
 COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE)
 AVR_GCC_DIR = avr
 OBJECTS    = main.o \
-             ../console.o
+             ../console.o \
+			 ../queue.o
 export PATH := $(shell pwd)/../$(AVR_GCC_DIR)/bin:$(PATH)
 
 all: usb clean build erase upload

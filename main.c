@@ -3,8 +3,6 @@
   by sending out DALI commands to dim 
 */
 
-#define __DELAY_BACKWARD_COMPATIBLE__
-
 #include <avr/io.h>
 #include <util/delay.h>
 #include <inttypes.h>

@@ -10,108 +10,227 @@
 #include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 #include "../console.h"
 
-#define BIT_USEC 833
-
-#define HALF_BIT_USEC (BIT_USEC/2) 
-typedef void (*callback_t)(int16_t val);
-
-static callback_t pinchangeCallback = NULL;
+#define DALI_BAUD                   (1200)
+#define DALI_BIT_USECS              (1000000.0/DALI_BAUD)
+#define DALI_HALF_BIT_USECS         (DALI_BIT_USECS/2.0)
+#define USEC_TO_TICKS(u)    ((uint16_t) (((float)u)*(F_CPU/1000000.0) + 0.5))
 
 
+typedef enum {
+    OK,
+    NO_OP,
+    BAD_INPUT,
+    FAIL,
+    BUSY,
+    FULL,
+} command_response_t;
 
-static inline void transmitBit(uint8_t bit) {
-    if (bit) {
-        PORTB.OUTSET = PORT_INT2_bm;
-    } else {
-        PORTB.OUTCLR = PORT_INT2_bm;
-    }
-    _delay_us(HALF_BIT_USEC-2);
-    PORTB.OUTTGL = PORT_INT2_bm;
-    _delay_us(HALF_BIT_USEC-4);
-}
+
+
+typedef void (*callback_t)(command_response_t result);
+
+// give it enough space to store a _lot_ of pulses - We only need a max of 50 for a normal 24 bit sequence.
+#define MAX_PULSES 60
+
+// static callback_t pinchangeCallback = NULL;
+static uint16_t pulses[MAX_PULSES];
+static volatile uint16_t *pulsePtr = pulses;
+static bool transmitting = false;
+static callback_t onCompletionCallback = NULL;
+
+static void sendCommandResponse();
+
 
 static inline uint8_t isShorted() {
     return PORTA.IN;
 }
 
-// static uint16_t receive() {
-//     bool shorted = wait_for_short();
-// }
 
-static bool wait_for_short(uint16_t timeout_usec) {
-    // Turn on a timer. 
-    TCA0.SINGLE.CNT = 0;
-    TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm;
+static inline void resetPulseArray() {
+    pulsePtr = pulses;
+    pulses[0] = 0;
 
-    uint16_t timeout = timeout_usec*10/3; // for 3.33mhz clock.
-    bool timedOut;
-
-    while (!isShorted() && (timedOut = (TCA0.SINGLE.CNT <= timeout))) {
-        ; // Do nothing.
-    }
-
-    TCA0.SINGLE.CTRLA = 0;
-    TCA0.SINGLE.CNT = 0;
-    return !timedOut;
-}
-
-
-ISR(PORTA_PORT_vect) {
-    uint16_t t = TCA0.SINGLE.CNT;
-    TCA0.SINGLE.CNT = 0;
-    if (PORTA.INTFLAGS & PORT_INT7_bm) {
-        // Pin change happened.
-        PORTA.INTFLAGS  = PORT_INT7_bm;
-
-        if (pinchangeCallback) {
-            pinchangeCallback((int16_t) t);
-        }
-    }
 }
 
 ISR(TCA0_CMP0_vect) {
-    TCA0.SINGLE.CNT = 0;
-    // Timeout occurred.
-    pinchangeCallback(-1);
+    uint16_t newPulseWidth = *pulsePtr++;
+    if (newPulseWidth == 0 || pulsePtr - pulses == 52) {
+        // TCA0.SINGLE.CTRLC = 0; 
+        TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc | TCA_SINGLE_CMP2EN_bm;   
+        TCA0.SINGLE.CTRLA = 0; // We're done. 
+        TCA0.SINGLE.INTCTRL = 0; // Turn off interrupts.
+
+        resetPulseArray();
+        // TODO re-enable receiving.
+        transmitting = false;
+        if (onCompletionCallback) {
+            onCompletionCallback(OK);
+        }
+
+    } else {
+        TCA0.SINGLE.CMP0 = newPulseWidth;
+    }
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm;
 }
 
-
-void on(uint8_t isc, uint16_t timeout, callback_t callback) {
-    pinchangeCallback = callback;
-    PORTA.PIN7CTRL = isc;
-    TCA0.SINGLE.CNT = 0;
-    TCA0.SINGLE.CMP0 = timeout*10/3;
-    TCA0.SINGLE.CTRLA = TCA_SINGLE_ENABLE_bm; // Turn clock on (if it isn't already)
-    // TCA0.SINGLE.INTCTRL = TCA
-    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm; // Clear any old interrupts. 
-}
-
-
-static uint16_t transmit(uint32_t val, uint8_t numBits) {
-    transmitBit(1); // Start Bits.
-    val <<= (32-numBits);
-    for (uint8_t i = 0; i < numBits; i++) {
-        transmitBit(val & 0x80000000 ? 1 : 0);
-        val <<= 1;
+void transmit(callback_t callback) {
+    pulsePtr = pulses;
+    if (*pulsePtr == 0) {
+        callback(NO_OP);
+        return; // Degenerate do nothing use case.
     }
-    PORTB.OUTCLR = PORT_INT2_bm;
-    _delay_us(BIT_USEC*2); // Stop Bits.
+    onCompletionCallback = callback;
+    // TODO pause receiving
+    transmitting = true;
 
-    // Ignore everything for 7 Half bits.  If something happens during this time, its illegal. 
-    _delay_us(HALF_BIT_USEC*7); // Stop Bits.
-    // Wait for up to another 15 half bit time periods (total of 22) for a response to start.
-
-    return 0; //receive();
+    TCA0.SINGLE.CTRLA = 0;     // Disable timer if it was already running
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm; // Clear any existing interrupts.
+    TCA0.SINGLE.CNT  = 0;
+    uint16_t firstPulse = *pulsePtr++;
+    TCA0.SINGLE.CMP0 = firstPulse; // Initial pulse width.
+    TCA0.SINGLE.CMP2 = 0; // Toggle immediately.  It will always be out of phase with WG0 
+    TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm;  // Now start the timer.
+    TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_FRQ_gc | TCA_SINGLE_CMP2EN_bm; // This will immediately drive the output signal high (shorted)
+    TCA0.SINGLE.INTCTRL  = TCA_SINGLE_CMP0_bm; // Interrupt on CMP2 to update the period
 }
 
+static inline bool isPulseArrayFull() {
+    return pulsePtr - pulses == MAX_PULSES;
+}
+
+static uint8_t getPulseCount() {
+    return pulsePtr - pulses;
+}
+
+void transmitValidDali(uint32_t data, uint8_t numBits, callback_t callback) {
+    pulsePtr = pulses;
+
+    *pulsePtr++ = USEC_TO_TICKS(DALI_HALF_BIT_USECS); // First half of start bit.
+    data = data << (32-numBits);  // Add in start bit
+    uint8_t last = 1;
+
+    for (uint8_t i = 0; i < numBits; i++) {
+        uint8_t current = data & 0x80000000 ? 1 : 0;
+
+        if (current == last) {
+            *pulsePtr++ = USEC_TO_TICKS(DALI_HALF_BIT_USECS); // Two toggles
+            *pulsePtr++ = USEC_TO_TICKS(DALI_HALF_BIT_USECS); 
+        } else {
+            *pulsePtr++ = USEC_TO_TICKS(DALI_BIT_USECS); // One big long one 
+        }
+        last = current;
+        data <<=1;
+    }
+    // At this point we're half way through the last bit, but we only care if the final bit was a 0, as that means the bus
+    // has just been shorted.  We want to release after another half bit.
+    if (!last) {
+        // Need one last half bit flip. 
+        *pulsePtr++ = USEC_TO_TICKS(DALI_HALF_BIT_USECS);
+    }
+    *pulsePtr = 0; //sentinel value. 
+    if (getPulseCount() % 2 == 0) {
+        log_info("Error - expected odd number of pulse durations");
+        callback(FAIL);
+    } else {
+        transmit(callback);
+    }
+}
+
+static void sendCommandResponse(command_response_t response) {
+    switch (response) {
+        case OK: 
+            printf("\r\n<OK\r\n");        
+            break;
+        case NO_OP: 
+            printf("\r\n<NOOP\r\n");        
+            break;
+        case BAD_INPUT: 
+            printf("\r\n<!Bad Input\r\n");        
+            break;
+        case FAIL: 
+            printf("\r\n<!Failed\r\n");        
+            break;
+        case FULL: 
+            printf("\r\n<!Full\r\n");        
+            break;
+        case BUSY:
+            printf("\r\n<!Busy\r\n");        
+            break;
+    }
+}
+
+static void command_parser(char *cmd) {
+    uint8_t len = strlen(cmd);
+    uint16_t pw;
+
+    if (len == 0) {
+        // Empty command. Do nothing!
+    } else {
+        switch (cmd[0]) {
+            // Transmit a valid DALI command
+            case 'T':
+                // We only accept 16 and 24 bit payloads for T
+                if (!(len == 5 || len == 7)) {
+                    sendCommandResponse(BAD_INPUT);
+                    return;
+                }
+                if (transmitting) {
+                    sendCommandResponse(BUSY);
+                    return;
+                }
+                uint32_t val = strtol(cmd+1, NULL, 16);
+                transmitValidDali(val, (len-1)*4, sendCommandResponse);
+                return;
+
+            // Clear out any accumulated pulses. 
+            case 'C': 
+                resetPulseArray();
+                sendCommandResponse(OK);
+                return;
+
+            // append a pulse.
+            case 'P': 
+                pw = atoi(cmd+1)*10/3;
+                // Minimum pulsewidth is 10 uSec
+                if (pw < 34) {
+                    sendCommandResponse(BAD_INPUT);
+                    return;
+                }
+                if (isPulseArrayFull()) {
+                    sendCommandResponse(FULL);
+                    return;
+                }
+
+                *pulsePtr++ = pw;
+                *pulsePtr = 0; // Ensure that pulse array always ends with a 0.
+                log_info("Added pulse of %d ticks", pw);
+                sendCommandResponse(OK);
+                return;
+
+            // Send our accumulated waveform. 
+            case 'W': 
+                if (getPulseCount() % 2 == 0) {
+                    log_info("Error - expected odd number of pulse durations");
+                    sendCommandResponse(BAD_INPUT);
+                    return;
+                }
+            
+                transmit(sendCommandResponse);
+                return;
+        }
+    }
+    sendCommandResponse(BAD_INPUT);
+}
 
 
 
 int main(void) {
-    console_init();
+    console_init(command_parser);
+
     sei();
 
     log_info("Welcome");
@@ -124,14 +243,11 @@ int main(void) {
     // PORTA.PIN7CTRL = PORT_PULLUPEN_bm;
     PORTA.DIRCLR = PORT_INT7_bm;
 
-    uint16_t data = 0xFEE1;
 
+    CPUINT.LVL1VEC = TCA0_CMP0_vect_num; // Make CMP0 high priority.
 
     while (1) {
-        log_info("transmitting");
-
-        transmit(data, 16);
-        _delay_ms(100);
+        _delay_ms(500);
     }
     return 0;
 }

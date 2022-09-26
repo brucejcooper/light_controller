@@ -4,7 +4,9 @@
 
 #include <stdio.h>
 
-void console_init();
+typedef void (*command_hanlder_t)(char *cmd);
+
+void console_init(command_hanlder_t handler);
 void USART0_sendChar(char c);
 void log_info(char *str, ...);
 

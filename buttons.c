@@ -209,6 +209,6 @@ bool scan_buttons(button_event_t event[NUM_BUTTONS]) {
 
 
 void buttons_set_wake_from_sleep_enabled(bool enabled) {
-    SWITCH_PORT.PIN6CTRL = enabled ? PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc : PORT_PULLUPEN_bm;
+    SWITCH_PORT.PIN6CTRL = enabled ? PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc : PORT_PULLUPEN_bm;
 
 }
