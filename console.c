@@ -81,18 +81,23 @@ int printCHAR(char character, FILE *stream) {
 int printCHAR(char character, FILE *stream);
 
 
+void printPrompt() {
+    *inPtr = '\0';
+    printf("\r>%s",  in);
+}
+
 void log_info(char *str, ...) {
     va_list ap;
 
     va_start(ap, str);
 
     pushChar('\r');
-    pushChar('\n');
     pushChar(' ');
     vprintf(str, ap);
     va_end(ap);
-    *inPtr = '\0'; // Make sure our input pointer is zero terminated before re-echoing.
-    printf("\r\n>%s", in);
+    pushChar('\r');
+    pushChar('\n');
+    printPrompt();
 }
 
 ISR(USART0_DRE_vect) {
@@ -101,6 +106,39 @@ ISR(USART0_DRE_vect) {
     USART0.STATUS = USART_DREIF_bm;
 }
 
+static void clearInputBuffer() {
+    inPtr = in;
+    *inPtr=  '\0';
+}
+
+
+void sendCommandResponse(command_response_t response) {
+    switch (response) {
+        case CMD_DEFERRED_RESPONSE:
+            // Do nothing right now, because we expect a later system to call this again with the real response.
+            return;
+        case CMD_OK: 
+            printf("<OK\r\n");        
+            break;
+        case CMD_NO_OP: 
+            printf("<NOOP\r\n");        
+            break;
+        case CMD_BAD_INPUT: 
+            printf("<!Bad Input\r\n");        
+            break;
+        case CMD_FAIL: 
+            printf("<!Failed\r\n");        
+            break;
+        case CMD_FULL: 
+            printf("<!Full\r\n");        
+            break;
+        case CMD_BUSY:
+            printf("<!Busy\r\n");        
+            break;
+    }
+    printPrompt();
+
+}
 
 ISR(USART0_RXC_vect) {
     // Called when Something happens to the receive buffer. The only interrupt we support is RXC, so clear it. 
@@ -112,17 +150,18 @@ ISR(USART0_RXC_vect) {
         inPtr = in; // Reset it back to an empty command. 
         printf("OVERFLOW\r\n>");
     }
-    pushChar(ch); // Echo it back out to the client.
-
 
     if (ch == '\r') {
+        pushChar('\r'); 
         pushChar('\n'); // add a newline to put us on the next line.
         *inPtr = '\0';
-        if (cmdHandler) {
-            cmdHandler(in);
+        
+        command_response_t response = cmdHandler ? cmdHandler(in) : CMD_NO_OP;
+        clearInputBuffer();
+        if (response != CMD_DEFERRED_RESPONSE) {
+            sendCommandResponse(response);
         }
-        inPtr = in;
-        pushChar('>');
+        
     } else if (ch == 8 || ch == 127) {
         // Backspace
         if (inPtr > in) {
@@ -132,12 +171,14 @@ ISR(USART0_RXC_vect) {
             pushChar(8);
         }
     } else {
+        pushChar(ch); // Echo it back out to the client.
         *inPtr++ = ch;
     }
 }
 
 
 void console_init(command_hanlder_t handler) {
+    in[0] = 0;
     inPtr = in;
     cmdHandler = handler;
 
@@ -165,5 +206,6 @@ void console_init(command_hanlder_t handler) {
     // Switch stdout for our character printing version.
     stdout = &mystdout;
 
-    printf("\r\n System Started\r\n>");
+    printf("\r\n System Started\r\n");
+    printPrompt();
 }

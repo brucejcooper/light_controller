@@ -35,6 +35,11 @@ void cmdTransmitted(bool collision) {
     dali_idle_state_enter();
 }
 
+static command_response_t processCommand(char *cmd) {
+    // We don't support any commands.
+    return CMD_BAD_INPUT;
+}
+
 int main(void) {
     dali_result_t dres;
     button_event_t events[NUM_BUTTONS];
@@ -44,10 +49,7 @@ int main(void) {
     // CCP = CCP_IOREG_gc;
     // WDT.STATUS = WDT_LOCK_bm;
     // WDT.CTRLA = WDT_PERIOD_1KCLK_gc; // 1 second.
-
-
-    console_init();
-    log_info("Started");
+    console_init(processCommand);
 
 
     dali_init();

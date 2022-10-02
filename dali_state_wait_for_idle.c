@@ -21,6 +21,7 @@
  */
 static void onTimeout() {
     // Turn everything off.
+    log_info("to");
     cancel_timeout();
     dali_on_linechange(NULL);
     dali_idle_state_enter(); 
@@ -39,7 +40,7 @@ static void startReceivingResponse() {
 
 
 extern void dali_wait_for_idle_state_enter() {
-    USART0_sendChar('C');
+    log_info("wfi");
     dali_on_linechange(startReceivingResponse);
     on_timeout(IDLE_THRESHOLD, onTimeout);
     startReceivingResponse();

@@ -47,7 +47,7 @@ static void startReceivingResponse() {
 
 
 extern void dali_wait_for_response_state_enter(dali_response_callback_t callback) {
-    USART0_sendChar('w');
+    log_info("wfr");
     // For this, we will be reading the line, so we enable our AC, and make it interrupt on any change.
     dali_on_linechange(startReceivingResponse);
     responseCallback = callback;

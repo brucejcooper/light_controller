@@ -171,7 +171,7 @@ void dali_state_receiving_prepare(callback_t callback) {
  * We also expect dali_state_receiving_prepare to have been called before this one.
  */
 void dali_state_receiving_enter() {
-    USART0_sendChar('R');
+    log_info("receiving");
     AC0.STATUS = AC_CMP_bm; // Remove any existing interrupt flags.
     AC0.INTCTRL = AC_CMP_bm; // Turn on interrupts for AC0.
     TCB0.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm; // Start TCB0 for pulse width timing

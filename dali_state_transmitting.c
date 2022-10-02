@@ -50,7 +50,6 @@ ISR(TCA0_CMP1_vect) {
     if (dali_is_bus_shorted()) {
         // that there is a collision. go into failsafe mode.
         cleanup();
-        USART0_sendChar('!');
         completionCallback(true);
     }
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP1_bm;
@@ -124,7 +123,7 @@ ISR(TCA0_CMP2_vect) {
 
 
 extern void dali_transmitting_state_enter(uint32_t data, uint8_t numBits, dali_transmit_completed_callback_t callback) {
-    USART0_sendChar('T');
+    log_info("tx");
     completionCallback = callback;
 
     // Set up timer A to do output etc...  Set up buffer with timings.  Start Timer A. 

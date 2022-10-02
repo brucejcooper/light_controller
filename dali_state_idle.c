@@ -69,6 +69,8 @@ dali_result_t dali_queue_transmit(uint32_t data, uint8_t numBits, dali_transmit_
 
     if (idle) {
         check_for_commands_to_send();
+    } else {
+        log_info("Command will transmit later");
     }
     return DALI_OK;
 }
@@ -81,6 +83,7 @@ static void check_for_commands_to_send() {
         // A command has been enqueued. 
         commandQueueHead = commandQueueHead->next;
         cleanup();
+        log_info("Transmitting command %u", cmd->data);
         dali_transmitting_state_enter(cmd->data, cmd->numBits, cmd->responseHandler);
         free(cmd);
     }
@@ -88,7 +91,7 @@ static void check_for_commands_to_send() {
 
 
 static void transmitComplete(bool conflict) {
-    USART0_sendChar(conflict);
+    log_info("Tx complete: %s", conflict ? "conflict": "success");
     dali_idle_state_enter();
 }
 
@@ -135,7 +138,7 @@ void dali_idle_state_enter() {
         check_for_commands_to_send();
     } else {
         // Otherwise, wait for a transmission to be received, or button to be pressed.
-        USART0_sendChar('I');
+        log_info("idle");
         idle = true;
         dali_state_receiving_prepare(process_received_dali_transmission);
 
