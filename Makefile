@@ -1,4 +1,5 @@
 DEVICE     = attiny804
+# 3.3 Mhz clock, by default (20 Mhz / 6)
 CLOCK      = 3333333
 PORT	   = /dev/ttyUSB0
 FILENAME   = main
