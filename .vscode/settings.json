@@ -11,6 +11,11 @@
         "atomic.h": "c",
         "wdt.h": "c",
         "stdbool.h": "c",
-        "queue.h": "c"
+        "queue.h": "c",
+        "console.h": "c",
+        "stdlib.h": "c",
+        "eeprom.h": "c",
+        "pgmspace.h": "c",
+        "intr.h": "c"
     },
 }

@@ -33,6 +33,7 @@ void dali_init() {
 
     // Set up event systemt to route AC events to channel 0.
     EVSYS.ASYNCCH0 = EVSYS_ASYNCCH0_AC0_OUT_gc;
+    EVSYS.ASYNCUSER0 = EVSYS_ASYNCUSER0_ASYNCCH0_gc; // Set TCB0 to use ASYNCHCH0
 
     // Ensure the timer is stopped;
     TCA0.SINGLE.CTRLA = 0;     

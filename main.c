@@ -10,6 +10,7 @@
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
 #include <avr/wdt.h>
+#include <avr/eeprom.h>
 #include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
@@ -17,7 +18,20 @@
 #include "queue.h"
 #include "buttons.h"
 #include "console.h"
+#include <string.h>
 
+typedef struct {
+    uint8_t shortAddr;  
+    uint8_t addrL; // Programmed in by the external master.... 
+    uint8_t addrM;
+    uint8_t addrH;
+    uint8_t numButtons;
+    uint8_t targets[5]; // The targets
+} userdata_t;
+
+
+
+const userdata_t *userData = (userdata_t *) (&USERROW);
 
 
 
@@ -33,11 +47,36 @@ int mapActionToDaliCommand(button_event_t action) {
 
 void cmdTransmitted(bool collision) {
     dali_idle_state_enter();
+    sendCommandResponse(collision? CMD_FAIL : CMD_OK);
 }
 
 static command_response_t processCommand(char *cmd) {
+    dali_result_t dres;
+
+    if (strlen(cmd) == 0) {
+        return CMD_NO_OP;
+    }
+    if (strcmp(cmd, "reset") == 0) {
+
+        return CMD_OK;
+    }
+    if (cmd[0] == '0') {
+        dres = dali_queue_transmit(0xFF00, 16, cmdTransmitted);
+        if (dres != DALI_OK) {
+            log_info("error transmitting: %d", dres);
+        }
+        return CMD_DEFERRED_RESPONSE;
+    }
+
+    if (cmd[0] == '1') {
+        dres = dali_queue_transmit(0xFF05, 16, cmdTransmitted);
+        if (dres != DALI_OK) {
+            log_info("error transmitting: %d", dres);
+        }
+        return CMD_OK;
+    }
     // We don't support any commands.
-    return CMD_BAD_INPUT;
+    return CMD_DEFERRED_RESPONSE;
 }
 
 int main(void) {
@@ -52,12 +91,13 @@ int main(void) {
     console_init(processCommand);
 
 
+    log_info("HALF_BIT_MIN = %d", HALFTICK_MIN_TICKS);
+
     dali_init();
     buttons_init();
 
     set_sleep_mode(SLEEP_MODE_STANDBY);
     sei();
-
 
 
     while (1) {
@@ -70,7 +110,7 @@ int main(void) {
                 break;
                 case EVENT_PRESSED:
                 log_info("Button %d pressed", i);
-                dres = dali_queue_transmit(0xFEED, 16, cmdTransmitted);
+                dres = dali_queue_transmit(0xFF00, 16, cmdTransmitted);
 
                 if (dres != DALI_OK) {
                     log_info("error transmitting: %d", dres);

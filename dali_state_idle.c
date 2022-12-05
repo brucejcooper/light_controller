@@ -83,7 +83,7 @@ static void check_for_commands_to_send() {
         // A command has been enqueued. 
         commandQueueHead = commandQueueHead->next;
         cleanup();
-        log_info("Transmitting command %u", cmd->data);
+        log_info("Transmitting command (%u bits) %08x", cmd->numBits, cmd->data );
         dali_transmitting_state_enter(cmd->data, cmd->numBits, cmd->responseHandler);
         free(cmd);
     }

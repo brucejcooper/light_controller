@@ -58,6 +58,7 @@ static inline void cleanup() {
 ISR(TCB0_INT_vect) {
     // TCB0's CNT has been reset automatically, but TCA0's hasn't 
     // We do this first so that it closely matches TCB0s as it can
+    putchar('x');
     reset_timeout();
     // Flip the edge type we're looking for.
     TCB0.EVCTRL ^= TCB_EDGE_bm; // 1 is negative edge, 0 is positive edge
@@ -121,6 +122,7 @@ ISR(TCB0_INT_vect) {
     return;  // Avoid the error handler. 
 error:
     // We received an invalid pulse width. 
+    log_info("Error");
     cleanup();
     dali_wait_for_idle_state_enter();
 }
@@ -138,6 +140,8 @@ void timerOverflow() {
         shiftreg = 0;
     } else {
         // Some timing error or collision occurred.  
+        log_info("Too long");
+
         dali_wait_for_idle_state_enter();
     }
 }
@@ -146,6 +150,8 @@ void timerOverflow() {
 
 
 void dali_state_receiving_prepare(callback_t callback) {
+    log_info("rcvprep");
+
     shiftreg = 0;
     readerState = IN_START;
     numBits = 0;

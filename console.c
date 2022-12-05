@@ -118,22 +118,22 @@ void sendCommandResponse(command_response_t response) {
             // Do nothing right now, because we expect a later system to call this again with the real response.
             return;
         case CMD_OK: 
-            printf("<OK\r\n");        
+            printf("\r<OK\r\n");        
             break;
         case CMD_NO_OP: 
-            printf("<NOOP\r\n");        
+            printf("\r<NOOP\r\n");        
             break;
         case CMD_BAD_INPUT: 
-            printf("<!Bad Input\r\n");        
+            printf("\r<!Bad Input\r\n");        
             break;
         case CMD_FAIL: 
-            printf("<!Failed\r\n");        
+            printf("\r<!Failed\r\n");        
             break;
         case CMD_FULL: 
-            printf("<!Full\r\n");        
+            printf("\r<!Full\r\n");        
             break;
         case CMD_BUSY:
-            printf("<!Busy\r\n");        
+            printf("\r<!Busy\r\n");        
             break;
     }
     printPrompt();
