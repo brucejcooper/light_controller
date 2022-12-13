@@ -11,6 +11,9 @@
 #define MSEC_TO_TICKS(u)    USEC_TO_TICKS((u)*1000)
 #define TICKS_TO_USECS(u)   (uint16_t) ((u)/(F_CPU/1000000.0))
 
+#define DALI_RESPONSE_DELAY_MSEC 5.5
+#define DALI_RESPONSE_MAX_DELAY_MSEC 10.5
+#define DALI_RESPONSE_POST_RESPONSE_DELAY_MSEC 2.4
 
 // We allow 45 uSec variation in timing (371 - 461)
 static inline bool isHalfBit(uint16_t v) {

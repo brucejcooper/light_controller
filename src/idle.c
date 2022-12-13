@@ -24,7 +24,7 @@ static uint8_t commandQueueDepth = 0;
 static void commandResponseHandler(outgoing_command_response_type_t responseType, uint8_t response) {
     // If there is a callback, call it.
     if (commands[0].callback) {
-        commands[0].callback(responseType, response, commands[0].context);
+        commands[0].callback(commands[0].cmd, commands[0].index, responseType, response, commands[0].context);
     }
     // Delete the queued command
     if (--commandQueueDepth > 0) {

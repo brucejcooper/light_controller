@@ -33,7 +33,7 @@ static void commandTransmitted(transmit_event_t evt) {
             // break;
         case TRANSMIT_EVT_COMPLETED:
             // the command was sent successfully.  Wait for (potential) response.
-            waitForRead(MSEC_TO_TICKS(10.5), responseReceived);
+            waitForRead(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), responseReceived);
             break;
     }
 }

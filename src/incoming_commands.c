@@ -6,8 +6,6 @@
 #include "intr.h"
 #include "timing.h"
 
-
-
 /*
 from https://onlinedocs.microchip.com/pr/GUID-0CDBB4BA-5972-4F58-98B2-3F0408F3E10B-en-US-1/index.html?GUID-DA5EBBA5-6A56-4135-AF78-FB1F780EF475
 A DALI 2.0 forward frame contains the Start bit, followed by the address byte, up to two data bytes, 
@@ -32,22 +30,19 @@ static response_type_t processCommand(receive_event_received_t *evt, uint8_t *re
         log_info("Processing command 0x%08lx", evt->data);
         // By default, ignore all commands
         return RESPONSE_NACK;
-    } else {
-        // We only respond to 24 bit commands, as we are a controller.
-        log_info("Ignoring 0x%08lx (%d bits)", evt->data, evt->numBits);
-        return RESPONSE_IGNORE;
     }
+    // We only respond to 24 bit commands, as we are a controller.
+    log_info("Ignoring 0x%08lx (%d bits)", evt->data, evt->numBits);
+    return RESPONSE_IGNORE;
 }
 
-
-
 static void transmit_response_completed() {
-    startSingleShotTimer(MSEC_TO_TICKS(2.4), transmitNextCommandOrWaitForRead);
+    // 3. at least 6 half bit periods (2.4ms) before processing a new command
+    startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_POST_RESPONSE_DELAY_MSEC), transmitNextCommandOrWaitForRead);
 }
 
 static void transmit_response() {
     log_info("Responding 0x%02x", response);
-    // 3. at least 6 half bit periods (2.4ms) before processing a new command
     transmit(response, 8, transmit_response_completed);
 }
 
@@ -79,16 +74,16 @@ static void commandReceived(receive_event_t *evt) {
                 case RESPONSE_RESPOND:
                     // 1. Wait 5.5 ms (the minimum delay)
                     // 2. Then send the response (1 byte)
-                    startSingleShotTimer(MSEC_TO_TICKS(5.5), transmit_response);
+                    startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_DELAY_MSEC), transmit_response);
                     break;
                 case RESPONSE_NACK:
                     // Wait for maximum response time.  Ignore any inputs during this time.  
                     log_info("(not) Responding NACK");
-                    startSingleShotTimer(MSEC_TO_TICKS(10.5), transmitNextCommandOrWaitForRead);
+                    startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), transmitNextCommandOrWaitForRead);
                     break;
                 case RESPONSE_IGNORE:
                     // Potentially read in a response from the other device.
-                    waitForRead(MSEC_TO_TICKS(10.5), responseFromOtherDeviceReceived);
+                    waitForRead(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), responseFromOtherDeviceReceived);
                     break;
             }
             break;
