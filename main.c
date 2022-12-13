@@ -1,7 +1,4 @@
-/* 
-  DALI master, useable as a multi-switch controller.  Programmed (via UPDI, or UART?) to respond to button presses
-  by sending out DALI commands to dim 
-*/
+#define __DELAY_BACKWARD_COMPATIBLE__
 
 #include <avr/io.h>
 #include <util/delay.h>
@@ -10,171 +7,133 @@
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
 #include <avr/wdt.h>
-#include <avr/eeprom.h>
 #include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
-#include "dali.h"
-#include "queue.h"
-#include "buttons.h"
-#include "console.h"
+#include <stdlib.h>
 #include <string.h>
-
-typedef struct {
-    uint8_t shortAddr;  
-    uint8_t addrL; // Programmed in by the external master.... 
-    uint8_t addrM;
-    uint8_t addrH;
-    uint8_t numButtons;
-    uint8_t targets[5]; // The targets
-} userdata_t;
-
+#include "console.h"
+#include "intr.h"
+#include "snd.h"
+#include "rcv.h"
+#include "timing.h"
+#include "buttons.h"
+#include "idle.h"
+#include "outgoing_commands.h"
 
 
-const userdata_t *userData = (userdata_t *) (&USERROW);
+static command_response_t command_parser(char *cmd) {
+    uint8_t len = strlen(cmd);
+    // char *endptr;
 
-
-
-int mapButtonToAddress(int button) {
-    // TODO implement me.
-    return 0xde;
-}
-
-int mapActionToDaliCommand(button_event_t action) {
-    // TODO implement me.
-    return 0xae;
-}
-
-void cmdTransmitted(bool collision) {
-    dali_idle_state_enter();
-    sendCommandResponse(collision? CMD_FAIL : CMD_OK);
-}
-
-static command_response_t processCommand(char *cmd) {
-    dali_result_t dres;
-
-    if (strlen(cmd) == 0) {
+    if (len == 0) {
+        // Empty command. Do nothing!
         return CMD_NO_OP;
-    }
-    if (strcmp(cmd, "reset") == 0) {
+    } else {
+        switch (cmd[0]) {
+            // Transmit a valid DALI command
+            // case 'T':
+            //     // We only accept 16 and 24 bit payloads for T
+            //     if (!(len == 5 || len == 7)) {
+            //         return CMD_BAD_INPUT;
+            //     }
+            //     uint32_t val = strtol(cmd+1, &endptr, 16);
+            //     if (*endptr) {
+            //         // We found an invalid character
+            //         return CMD_BAD_INPUT;
+            //     }
+            //     transmit(val, (len-1)*4);
+            //     return CMD_DEFERRED_RESPONSE;
 
-        return CMD_OK;
-    }
-    if (cmd[0] == '0') {
-        dres = dali_queue_transmit(0xFF00, 16, cmdTransmitted);
-        if (dres != DALI_OK) {
-            log_info("error transmitting: %d", dres);
-        }
-        return CMD_DEFERRED_RESPONSE;
-    }
+            // Clear out any accumulated pulses. 
+            // case 'C': 
+            //     resetPulseArray();
+            //     return CMD_OK;
 
-    if (cmd[0] == '1') {
-        dres = dali_queue_transmit(0xFF05, 16, cmdTransmitted);
-        if (dres != DALI_OK) {
-            log_info("error transmitting: %d", dres);
+            // append a pulse.
+            // case 'P': 
+            //     pw = USEC_TO_TICKS(atoi(cmd+1));
+            //     // Minimum pulsewidth is 10 uSec
+            //     if (pw < 34) {
+            //         return CMD_BAD_INPUT;
+            //     }
+            //     if (isPulseArrayFull()) {
+            //         return CMD_FULL;
+            //     }
+
+            //     *pulsePtr++ = pw;
+            //     *pulsePtr = 0; // Ensure that pulse array always ends with a 0.
+            //     log_info("Added pulse of %d ticks", pw);
+            //     return CMD_OK;
+
+            // Send our accumulated waveform. 
+            // case 'W': 
+            //     if (getPulseCount() % 2 == 0) {
+            //         log_info("Error - expected odd number of pulse durations");
+            //         return CMD_BAD_INPUT;
+            //     }            
+            //     transmit(sendCommandResponse);
+            //     return CMD_DEFERRED_RESPONSE;
+            case 'L':
+                log_info("Line level: %d", (AC0.STATUS & AC_STATE_bm) ? 1 : 0);
+                return CMD_OK;
+            case '0':
+                enqueueCommand(COMMAND_TURN_OFF, 0xFF, NULL, NULL);
+                return CMD_DEFERRED_RESPONSE;
+            case '1':
+                enqueueCommand(COMMAND_TURN_ON, 0xFF, NULL, NULL);
+                return CMD_DEFERRED_RESPONSE;
         }
-        return CMD_OK;
     }
-    // We don't support any commands.
-    return CMD_DEFERRED_RESPONSE;
+    return CMD_BAD_INPUT;
 }
 
 int main(void) {
-    dali_result_t dres;
-    button_event_t events[NUM_BUTTONS];
-    bool allButtonsIdle;
+    button_event_t buttonEvents[NUM_BUTTONS];
+    console_init(command_parser);
 
-    // Write a WDT value, using the CCP method
-    // CCP = CCP_IOREG_gc;
-    // WDT.STATUS = WDT_LOCK_bm;
-    // WDT.CTRLA = WDT_PERIOD_1KCLK_gc; // 1 second.
-    console_init(processCommand);
+    // Set PB2 as an output, initially set to zero out (not shorted)
+    PORTB.OUTCLR = PORT_INT2_bm;
+    PORTB.DIRSET = PORT_INT2_bm;
 
+    // Use PA7 as an Analog Comparator, with reference of 0.55V
+    // This makes it trigger sooner than if we were doing digital I/O
+    VREF.CTRLA = VREF_DAC0REFSEL_0V55_gc;
+    PORTA.PIN7CTRL  = PORT_ISC_INPUT_DISABLE_gc; // Disable Digital I/O
+    AC0.MUXCTRLA = AC_MUXNEG_VREF_gc | AC_MUXPOS_PIN0_gc;
+    AC0.CTRLA = AC_HYSMODE_OFF_gc | AC_ENABLE_bm;
+    EVSYS.ASYNCCH0 = EVSYS_ASYNCCH0_AC0_OUT_gc;
+    EVSYS.ASYNCUSER0 = EVSYS_ASYNCUSER0_ASYNCCH0_gc; // Set TCB0 to use ASYNCHCH0   
 
-    log_info("HALF_BIT_MIN = %d", HALFTICK_MIN_TICKS);
-
-    dali_init();
     buttons_init();
-
-    set_sleep_mode(SLEEP_MODE_STANDBY);
+    transmitNextCommandOrWaitForRead();
     sei();
 
-
     while (1) {
-
-        // wdt_reset();
-        allButtonsIdle = scan_buttons(events);
-        for (int i = 0; i < NUM_BUTTONS; i++) {
-            switch (events[i]) {
-                case EVENT_NONE:
-                break;
+        bool allIdle = scan_buttons(buttonEvents);
+        for (uint8_t i = 0; i < NUM_BUTTONS; i++) {
+            switch (buttonEvents[i]) {
                 case EVENT_PRESSED:
-                log_info("Button %d pressed", i);
-                dres = dali_queue_transmit(0xFF00, 16, cmdTransmitted);
+                    log_info("Button %d pressed", i+1);
+                    enqueueCommand(COMMAND_TURN_ON, 0xFF, NULL, NULL);
+                break;
 
-                if (dres != DALI_OK) {
-                    log_info("error transmitting: %d", dres);
-                }
-                break;
                 case EVENT_LONG_PRESSED:
-                log_info("Button %d long pressed", i);
+                    log_info("Button %d long pressed", i+1);
                 break;
+
                 case EVENT_RELEASED:
-                log_info("Button %d released", i);
+                    log_info("Button %d released", i+1);
+                break;
+
+                default:
+                    // Do nothing.
                 break;
             }
         }
-
-        // if (allButtonsIdle && !dali_transmitting) {
-        //     buttons_set_wake_from_sleep_enabled(true);
-        //     sleep_enable();
-        //     sleep_cpu();
-        //     sleep_disable();
-        //     buttons_set_wake_from_sleep_enabled(false);
-        // }
-
-        // dres = dali_receive(&address, &command);
-        // if (dres == DALI_OK) {
-        //     // TODO deal with what we've read in as a command.
-        // }
-        
-        // res = queue_pop(&event_queue, &evt);
-        // if (res == QUEUE_OK) {
-        //     button = evt & 0x0F;
-        //     action = (button_event_t) evt >> 4;
-        //     switch (action) {
-        //         case EVENT_PRESSED:
-        //             log_info("toggle %d", button);
-        //             PORTA.OUTTGL = PIN7_bm;
-        //             break;
-        //         case EVENT_LONG_PRESSED:
-        //             log_info("brighten %d", button);
-        //             PORTA.OUTTGL = PIN7_bm;
-        //             break;
-        //         case EVENT_DIMMER_DIM:
-        //             log_info("dim %d", button);
-        //             PORTA.OUTTGL = PIN7_bm;
-        //             break;
-        //         default:
-        //             // Do nothing
-        //             break;
-        //     }
-
-        //     address = mapButtonToAddress(button);
-        //     command = mapActionToDaliCommand(action);
-        //     do {
-        //         log_info("Transmitting 0x%02x%02x", address, command);
-        //         dres = dali_transmit_cmd(address, command);
-        //         dali_wait_for_transmission();
-        //         log_info("Done transmitting");
-        //         _delay_ms(5);
-        //         // TODO enforce required backoff if there was a collision - Random backoff time?
-        //     } while (dres != DALI_OK);
-        // } else {
-        //     // TODO how to sleep with the WDT?  Disable it?
-        //     // We wait for either an edge interrupt on Read, or an edge interrupt on one of the buttons.
-        //     sleep_cpu();
-        // }
+        if (allIdle) {
+            // We're idle. go to sleep?
+        }
     }
     return 0;
 }

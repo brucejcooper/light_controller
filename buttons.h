@@ -1,8 +1,6 @@
 #ifndef __BUTTONS_H__
 #define __BUTTONS_H__
 
-#include "queue.h"
-
 typedef enum {
   EVENT_NONE,
   EVENT_PRESSED,

@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
-#include "queue.h"
 #include "buttons.h"
 #include "console.h"
 

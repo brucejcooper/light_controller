@@ -1,21 +1,18 @@
 DEVICE     = attiny804
-# 3.3 Mhz clock, by default (20 Mhz / 6)
 CLOCK      = 3333333
 PORT	   = /dev/ttyUSB0
 FILENAME   = main
 COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE)
 AVR_GCC_DIR = avr
 OBJECTS    = main.o \
-			 timers.o \
-			 queue.o \
-			 console.o \
+             console.o \
+			 intr.o \
 			 buttons.o \
-			 dali_init.o \
-			 dali_state_idle.o \
-			 dali_state_receiving.o \
-			 dali_state_transmitting.o \
-			 dali_state_wait_for_idle.o \
-			 dali_state_wait_for_response.o
+			 rcv.o \
+			 snd.o \
+			 incoming_commands.o \
+			 outgoing_commands.o \
+			 idle.o
 export PATH := $(shell pwd)/$(AVR_GCC_DIR)/bin:$(PATH)
 
 all: usb clean build erase upload
@@ -25,7 +22,8 @@ usb:
 
 download_gcc:
 	wget http://downloads.arduino.cc/tools/avr-gcc-7.3.0-atmel3.6.1-arduino7-x86_64-pc-linux-gnu.tar.bz2 -q -O- | bzcat | tar xv
-    
+
+   
 .c.o:
 	$(COMPILE) -c $< -o $@
 

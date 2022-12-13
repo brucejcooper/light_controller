@@ -10,37 +10,41 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../console.h"
+#include "console.h"
 #include "intr.h"
 #include "rcv.h"
 #include "timing.h"
 #include "idle.h"
 
 
-static uint32_t shiftReg;
-static uint8_t numBits = 0;
+static receive_cb_t current_callback;
+static receive_event_t evt;
 static uint8_t lastBit;
-static bool valid;
 
 static void pulse_after_half_bit(uint16_t pulseWidth);
 static void pulse_after_bit_boundary(uint16_t pulseWidth);
-
+static void startbit_started(uint16_t _ignored);
 
 static inline void pushBit() {
     // putchar(lastBit ? '1': 0);
-    shiftReg = shiftReg << 1 | lastBit;
-    numBits++;
+    evt.rcv.data = evt.rcv.data << 1 | lastBit;
+    evt.rcv.numBits++;
 }
 
 
-static void invlalid_sequence(uint16_t pulseWidth) {
-    // Don't do anything...
+static void pulse_after_invalid(uint16_t pulseWidth) {
+    // All subsequent pulses until timeout are ignored. 
 }
 
-static void start_bit_received(uint16_t pulseWidth) {
+static void invalid_sequence_received() {
+    evt.type = RECEIVE_EVT_INVALID_SEQUENCE;
+    set_input_pulse_handler(pulse_after_invalid);
+}
+
+static void pulse_after_start(uint16_t pulseWidth) {
     if (!isHalfBit(pulseWidth)) {
         log_info("start bit wasn't a half bit");
-        set_input_pulse_handler(invlalid_sequence);
+        invalid_sequence_received();
     };
     // putchar('S');
     lastBit = 1;
@@ -58,16 +62,14 @@ static void pulse_after_half_bit(uint16_t pulseWidth) {
         pushBit();
     } else {
         log_info("invalid pulse width %d", pulseWidth);
-        set_input_pulse_handler(invlalid_sequence);
-
+        invalid_sequence_received();
     }
-    
 }
 
 static void pulse_after_bit_boundary(uint16_t pulseWidth) {
     if (!isHalfBit(pulseWidth)) {
         log_info("Pulse from bit boundary that wasn't a half bit");
-        set_input_pulse_handler(invlalid_sequence);
+        invalid_sequence_received();
     } else {
         // putchar('H');
         pushBit();
@@ -76,43 +78,49 @@ static void pulse_after_bit_boundary(uint16_t pulseWidth) {
 }
 
 
-static void timeout() {
-    TCA0.SINGLE.CTRLA = 0;
+static void timeout_occurred() {
+    clearTimeout(); 
     TCB0.CTRLA = 0; // Stop TCB0
+    set_isrs(NULL, NULL); // Turn off all ISRs.
     // printf("T\r\n");
-
 
     if (!(AC0.STATUS & AC_STATE_bm)) {
         // Timeout occurred while shorted.  This shouldn't happen.
         log_info("Timeout while shorted");
     }
-
-    if (valid) {
-        log_info("Read 0x%08lx(%u)", shiftReg, numBits);
-    } else {
-        log_info("Ignoring invalid input");
-    }    
-    idle_enter();
+    current_callback(&evt);
+    current_callback = NULL;
+    // idle_enter();
 }
     
 
-void read_enter(uint16_t _ignored) {
+void waitForRead(uint16_t timeout, receive_cb_t cb) {
+    current_callback = cb;
+    evt.rcv.data = 0;
+    evt.rcv.numBits = 0;
+    evt.type = RECEIVE_EVT_NO_DATA_RECEIVED_IN_PERIOD;
+
+    // Disable TCA0 initially.
+    TCA0.SINGLE.CTRLA = 0;
+    if (timeout > 0) {
+        startSingleShotTimer(timeout, timeout_occurred);
+    }
+    TCB0.CTRLA = 0;
+    TCB0.CTRLB = TCB_CNTMODE_FRQ_gc; // Put it in Capture Frequency Measurement mode.
+    TCB0.EVCTRL = TCB_CAPTEI_bm | TCB_EDGE_bm; // Waiting for a negative edge to start with.
+    TCB0.INTFLAGS = TCB_CAPT_bm; // Clear any existing interrupt.
+    TCB0.INTCTRL = TCB_CAPT_bm; // Enable Interrupts on CAPTURE
+    TCB0.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm; // Start TCB0 for pulse width timing - First pulse should reset clock.
+    set_isrs(NULL, startbit_started);
+}
+
+void startbit_started(uint16_t _ignored) {
+    setCanTransmitImmediately(false);
     // TCB0 should already be running, in Frequency Capture mode. 
     if (TCB0.CTRLA != (TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm) || TCB0.CTRLB != TCB_CNTMODE_FRQ_gc || TCB0.EVCTRL != (TCB_CAPTEI_bm)) {
         log_info("Entering read when not in the right mode. In %02x,%02x,%02x", TCB0.CTRLA, TCB0.CTRLB, TCB0.EVCTRL);
     }
-    
-    shiftReg = 0;
-    valid = true;
-    numBits = 0;
-        
+    set_isrs(NULL, pulse_after_start);
     // Start a timer that will go off after the maximum wait time (2 Bit periods) to indicate we're done.
-    TCA0.SINGLE.CTRLA = 0;
-    TCA0.SINGLE.CNT = 0;  // We try to always reset timer counters, but make sure. 
-    TCA0.SINGLE.PER = USEC_TO_TICKS(2*DALI_BIT_USECS); // Send ISR when clock reaches PER.
-    TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc; // normal counter mode, no output.
-    TCA0.SINGLE.CTRLA =  TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm; // Make the timeout clock run
-
-    set_isrs(NULL, timeout, start_bit_received);
-
+    startSingleShotTimer(USEC_TO_TICKS(2*DALI_BIT_USECS), timeout_occurred); // We are done when no pulse is received within 2 BIT periods.
 }

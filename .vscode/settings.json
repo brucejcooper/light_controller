@@ -16,6 +16,10 @@
         "stdlib.h": "c",
         "eeprom.h": "c",
         "pgmspace.h": "c",
-        "intr.h": "c"
+        "intr.h": "c",
+        "idle.h": "c",
+        "command_queue.h": "c",
+        "buttons.h": "c",
+        "outgoing_commands.h": "c"
     },
 }
