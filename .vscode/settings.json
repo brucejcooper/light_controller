@@ -20,6 +20,8 @@
         "idle.h": "c",
         "command_queue.h": "c",
         "buttons.h": "c",
-        "outgoing_commands.h": "c"
+        "outgoing_commands.h": "c",
+        "config.h": "c",
+        "stdint.h": "c"
     },
 }

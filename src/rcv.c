@@ -14,7 +14,7 @@
 #include "intr.h"
 #include "rcv.h"
 #include "timing.h"
-#include "idle.h"
+#include "state_machine.h"
 
 
 static receive_cb_t current_callback;

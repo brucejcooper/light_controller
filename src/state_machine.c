@@ -1,11 +1,11 @@
-#include "idle.h"
+#include "state_machine.h"
 #include <stdint.h>
 #include <string.h>
 #include "buttons.h"
 #include "incoming_commands.h"
 #include "outgoing_commands.h"
 #include "console.h"
-
+#include "config.h"
 
 typedef struct {
     outgoing_command_t cmd;
@@ -37,12 +37,19 @@ static void commandResponseHandler(outgoing_command_response_type_t responseType
 static void executeQueuedCommand() {
     canTransmitImmediately = false;
     // TODO translate cmd into a real dali command. Currently all broadcast.
-    transmitCommand((commands[0].index << 8) | commands[0].cmd, commandResponseHandler);
+    // Index 0 is broadcast.
+    uint8_t address = commands[0].index == 0 ? 0xFF : config.targets[commands[0].index-1];
+    transmitCommand((address << 8) | commands[0].cmd, commandResponseHandler);
 }
 
 bool enqueueCommand(outgoing_command_t cmd, uint8_t index, response_context_handler_t callback, void *context) {
     if (commandQueueDepth == MAX_COMMANDS) {
         log_info("Not appending command, as queue is full");
+        return false;
+    }
+
+    if (index > config.numButtons) {
+        log_info("Illegal device index supplied");
         return false;
     }
 

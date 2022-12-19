@@ -18,9 +18,9 @@
 #include "rcv.h"
 #include "timing.h"
 #include "buttons.h"
-#include "idle.h"
+#include "state_machine.h"
 #include "outgoing_commands.h"
-
+#include "config.h"
 
 static command_response_t command_parser(char *cmd) {
     uint8_t len = strlen(cmd);
@@ -78,10 +78,10 @@ static command_response_t command_parser(char *cmd) {
                 log_info("Line level: %d", (AC0.STATUS & AC_STATE_bm) ? 1 : 0);
                 return CMD_OK;
             case '0':
-                enqueueCommand(COMMAND_TURN_OFF, 0xFF, NULL, NULL);
+                enqueueCommand(COMMAND_Off, 0, NULL, NULL);
                 return CMD_DEFERRED_RESPONSE;
             case '1':
-                enqueueCommand(COMMAND_TURN_ON, 0xFF, NULL, NULL);
+                enqueueCommand(COMMAND_RecallMaxLevel, 0, NULL, NULL);
                 return CMD_DEFERRED_RESPONSE;
         }
     }
@@ -91,6 +91,8 @@ static command_response_t command_parser(char *cmd) {
 int main(void) {
     button_event_t buttonEvents[NUM_BUTTONS];
     console_init(command_parser);
+
+    retrieveConfig();
 
     // Set PB2 as an output, initially set to zero out (not shorted)
     PORTB.OUTCLR = PORT_INT2_bm;
@@ -115,7 +117,7 @@ int main(void) {
             switch (buttonEvents[i]) {
                 case EVENT_PRESSED:
                     log_info("Button %d pressed", i+1);
-                    enqueueCommand(COMMAND_TURN_ON, 0xFF, NULL, NULL);
+                    enqueueCommand(COMMAND_RecallMaxLevel, 0, NULL, NULL);
                 break;
 
                 case EVENT_LONG_PRESSED:
