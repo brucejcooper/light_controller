@@ -79,6 +79,7 @@ static void pulse_after_bit_boundary(uint16_t pulseWidth) {
 
 
 static void timeout_occurred() {
+    log_char('x');
     clearTimeout(); 
     TCB0.CTRLA = 0; // Stop TCB0
     set_incoming_pulse_handler(NULL); // Turn off all ISRs.

@@ -13,7 +13,6 @@
 
 #include "intr.h"
 
-static isr_handler_t tca0_cmp_handler = NULL;
 static isr_handler_t timeout_handler = NULL;
 static isr_pulse_handler_t tcb0_handler = NULL;
 
