@@ -25,6 +25,7 @@ typedef enum {
     RESPONSE_RESPOND,
     RESPONSE_NACK,
     RESPONSE_IGNORE,
+    RESPONSE_REPEAT,
 } response_type_t;
 
 
@@ -329,6 +330,7 @@ static void responseFromOtherDeviceReceived(receive_event_t *evt) {
 }
 
 static void commandReceived(receive_event_t *evt) {
+    log_char('!');
     response_type_t outcome;
     switch (evt->type) {
         case RECEIVE_EVT_RECEIVED:
@@ -347,7 +349,7 @@ static void commandReceived(receive_event_t *evt) {
                 case RESPONSE_IGNORE:
                     // Potentially read in a response from the other device.
                     // log_info("Consuming other device response");
-                    waitForRead(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), responseFromOtherDeviceReceived);
+                    waitForRead(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC-5), responseFromOtherDeviceReceived);
                     break;
             }
             break;
@@ -363,7 +365,9 @@ static void commandReceived(receive_event_t *evt) {
     }
 }
 
+
 void wait_for_command() {
+    log_char('?');
     waitForRead(0, commandReceived);
 }
 

@@ -43,7 +43,7 @@ static void invalid_sequence_received() {
 
 static void pulse_after_start(uint16_t pulseWidth) {
     if (!isHalfBit(pulseWidth)) {
-        log_uint16("Start wrong %s", pulseWidth);
+        log_uint16("Start wrong", pulseWidth);
         invalid_sequence_received();
     };
     // pushChar('S');
@@ -61,7 +61,7 @@ static void pulse_after_half_bit(uint16_t pulseWidth) {
         lastBit = lastBit ? 0 : 1;
         pushBit();
     } else {
-        log_uint16("invalid pulse width %s", pulseWidth);
+        log_uint16("invalid pulse width", pulseWidth);
         invalid_sequence_received();
     }
 }
@@ -118,7 +118,6 @@ void waitForRead(uint16_t timeout, receive_cb_t cb) {
 }
 
 void startbit_started(uint16_t _ignored) {
-    log_char('~');
     setCanTransmitImmediately(false);
     evt.type = RECEIVE_EVT_RECEIVED;
 

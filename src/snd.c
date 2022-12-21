@@ -5,7 +5,6 @@
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
 #include <avr/wdt.h>
-#include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -22,11 +21,14 @@ static uint8_t bitsLeft;
 static uint8_t lastBit;
 static void at_half_bit();
 
+static isr_handler_t tca0_cmp_handler = NULL;
+
+
 
 static void at_bit_boundary() {
     // Toggle in 1/2 bit to go back to half bit position.
     TCA0.SINGLE.CMP0 = USEC_TO_TICKS(DALI_HALF_BIT_USECS);
-    set_output_pulse_handler(at_half_bit);
+    tca0_cmp_handler = at_half_bit;
 }
 
 static void transmitCompleted() {
@@ -45,7 +47,7 @@ static void at_half_bit() {
         if (lastBit == 0) {
             // Need one last half bit toggle to get it back to idle. 
             newPulseWidth = USEC_TO_TICKS(DALI_HALF_BIT_USECS);
-            set_output_pulse_handler(transmitCompleted);
+            tca0_cmp_handler = transmitCompleted;
         } else {
             // We're already high (idle) - No need for any more timer loops. 
             transmitCompleted();
@@ -54,7 +56,7 @@ static void at_half_bit() {
     } else {
         if (nextBit == lastBit) {
             newPulseWidth = USEC_TO_TICKS(DALI_HALF_BIT_USECS);
-            set_output_pulse_handler(at_bit_boundary);
+            tca0_cmp_handler = at_bit_boundary;
         } else {
             lastBit = nextBit;
             newPulseWidth = USEC_TO_TICKS(DALI_BIT_USECS);
@@ -89,5 +91,17 @@ void transmit(uint32_t val, uint8_t len, transmit_cb_t cb) {
     TCA0.SINGLE.CNT  = 0; // Get timer to fire immediately after starting timer
     TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_FRQ_gc | TCA_SINGLE_CMP2EN_bm; 
     TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm;  // start the timer.
-    set_isrs(at_half_bit, NULL);
+    tca0_cmp_handler = at_half_bit;
+    TCA0.SINGLE.INTCTRL |= TCA_SINGLE_CMP0_bm; // Enable OUTPUT CMP. 
+}
+
+
+
+
+
+ISR(TCA0_CMP0_vect) {
+    if (tca0_cmp_handler) {
+        tca0_cmp_handler();
+    }
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm; // Clear flag
 }

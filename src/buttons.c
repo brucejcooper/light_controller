@@ -3,7 +3,6 @@
 #include <inttypes.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
-#include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
 #include "buttons.h"
@@ -42,11 +41,13 @@ button_t buttons[NUM_BUTTONS];
 static void button_debounced(void *ctx);
 static void button_released_debounce(void *ctx);
 
+static uint8_t pressedCount = 0;
+
 static void button_pressed(button_t *btn) {
     log_info("Pressed");
-    // enqueueCommand(COMMAND_QueryActualLevel, 0, NULL, NULL);
-
     // TODO emit a button press event
+    enqueueCommand(((pressedCount++) % 2) ? COMMAND_RecallMaxLevel : COMMAND_Off, 0, NULL, NULL);
+
     // Wait for the debounce period before we do anything else (we'll check level then)
     startTimer(DEBOUNCE_TICKS, button_debounced, btn, &(btn->timer));
 }
@@ -80,7 +81,7 @@ ISR(PORTA_PORT_vect)
                     button_released(btn);
                     break;
                 default:
-                    log_uint8("Illegal Port interrupt %d", SWITCH_PORT.PIN6CTRL & PORT_ISC_gm);
+                    log_uint8("Illegal Port interrupt", SWITCH_PORT.PIN6CTRL & PORT_ISC_gm);
                     break;
             }
             // Clear the interrupt flag.

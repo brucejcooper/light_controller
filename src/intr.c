@@ -5,7 +5,6 @@
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
 #include <avr/wdt.h>
-#include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -15,7 +14,6 @@
 #include "intr.h"
 
 static isr_handler_t tca0_cmp_handler = NULL;
-static isr_handler_t tca0_ovf_handler = NULL;
 static isr_handler_t timeout_handler = NULL;
 static isr_pulse_handler_t tcb0_handler = NULL;
 
@@ -32,36 +30,10 @@ void set_incoming_pulse_handler(isr_pulse_handler_t tcb0) {
 }
 
 
-
-
-void set_output_pulse_handler(isr_handler_t h) {
-    tca0_cmp_handler = h;
-}
-
-
-void setTimeoutISR(isr_handler_t tca0_ovf) {
-    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear any existing flag
-    tca0_ovf_handler = tca0_ovf;
-
-    if (tca0_ovf_handler) {
-        TCA0.SINGLE.INTCTRL |= TCA_SINGLE_OVF_bm;
-    } else {
-        TCA0.SINGLE.INTCTRL &= ~TCA_SINGLE_OVF_bm;
-    }
-} 
-
-static void timeoutOccurred() {
-    // Save the timeout handler, because the next call will clear it.
-    isr_handler_t callback = timeout_handler;
-    // Stop the timer
-    clearTimeout();
-    // Call the handler
-    callback();
-}
-
 void startSingleShotTimer(uint16_t to, isr_handler_t callback) {
     timeout_handler = callback;
-    setTimeoutISR(timeoutOccurred);
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear any existing flag
+    TCA0.SINGLE.INTCTRL |= TCA_SINGLE_OVF_bm;
     TCA0.SINGLE.CNT = 0;  // We try to always reset timer counters, but make sure. 
     TCA0.SINGLE.PER = to; // Send ISR when clock reaches PER.
     TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc; // normal counter mode, no output.
@@ -70,7 +42,8 @@ void startSingleShotTimer(uint16_t to, isr_handler_t callback) {
 
 void clearTimeout() {
     TCA0.SINGLE.CTRLA = 0;
-    setTimeoutISR(NULL);
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear any existing flag
+    TCA0.SINGLE.INTCTRL &= ~TCA_SINGLE_OVF_bm;
     timeout_handler = NULL;
     TCA0.SINGLE.CNT = 0;
     TCA0.SINGLE.PER = 0xFFFF;
@@ -78,34 +51,16 @@ void clearTimeout() {
 }
 
 
-void set_isrs(isr_handler_t tca0_cmp, isr_pulse_handler_t tcb0) {
-    // clear any existing ISRS
-    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm | TCA_SINGLE_CMP2_bm;
-
-    tca0_cmp_handler = tca0_cmp;
-
-    if (tca0_cmp_handler) {
-        TCA0.SINGLE.INTCTRL |= TCA_SINGLE_CMP0_bm;
-    } else {
-        TCA0.SINGLE.INTCTRL &= ~TCA_SINGLE_CMP0_bm;
-    }
-    set_incoming_pulse_handler(tcb0);
-}
-
-
-ISR(TCA0_CMP0_vect) {
-    if (tca0_cmp_handler) {
-        tca0_cmp_handler();
-    }
-    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm; // Clear flag
-
-}
-
 
 ISR(TCA0_OVF_vect) {
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear flag
-    if (tca0_ovf_handler) {
-        tca0_ovf_handler();
+
+    isr_handler_t callback = timeout_handler;
+    // Stop the timer
+    clearTimeout();
+    // Call the handler
+    if (callback) {
+        callback();
     }
 }
 

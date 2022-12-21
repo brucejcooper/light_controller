@@ -12,7 +12,6 @@
 #define INBUF_SZ 64
 
 
-int printCHAR(char character, FILE *stream);
 static command_hanlder_t cmdHandler = NULL;
 
 
@@ -69,15 +68,6 @@ void log_char(char character) {
     }
 }
 
-
-int printCHAR(char character, FILE *stream) {
-    log_char(character);
-    return 0;
-}
-
-
-int printCHAR(char character, FILE *stream);
-
 static void myPuts(char *str) {
     while (*str) {
         log_char(*str++);
@@ -107,7 +97,7 @@ void log_uint24(char *str, uint32_t val) {
     log_hex(val >> 16);
     log_hex(val >> 8);
     log_hex(val);
-    log_char('\r\n');
+    myPuts("\r\n");
     printPrompt();
 }
 
@@ -118,7 +108,7 @@ void log_uint16(char *str, uint16_t val) {
     myPuts(" 0x");
     log_hex(val >> 8);
     log_hex(val);
-    log_char('\r\n');
+    myPuts("\r\n");
     printPrompt();
 }
 
@@ -127,7 +117,7 @@ void log_uint8(char *str, uint8_t val) {
     myPuts(str);
     myPuts(" 0x");
     log_hex(val);
-    log_char('\r\n');
+    myPuts("\r\n");
     printPrompt();
 }
 
@@ -135,7 +125,7 @@ void log_uint8(char *str, uint8_t val) {
 void log_info(char *str) {
     myPuts(" \r");
     myPuts(str);
-    log_char('\r\n');
+    myPuts("\r\n");
     printPrompt();
 }
 
