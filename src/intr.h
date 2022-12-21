@@ -6,6 +6,7 @@ typedef void (*isr_handler_t)();
 typedef void (*isr_pulse_handler_t)(uint16_t);
 
 
+void set_incoming_pulse_handler(isr_pulse_handler_t tcb0);
 void set_isrs(isr_handler_t tca0_cmp, isr_pulse_handler_t tcb0);
 void set_input_pulse_handler(isr_pulse_handler_t tcb0);
 void set_output_pulse_handler(isr_handler_t h);

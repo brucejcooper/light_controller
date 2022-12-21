@@ -1,6 +1,5 @@
 
 #include "console.h"
-#include "stdio.h"
 #include "avr/io.h"
 #include "avr/interrupt.h"
 #include <stdbool.h>
@@ -14,7 +13,6 @@
 
 
 int printCHAR(char character, FILE *stream);
-static FILE mystdout = FDEV_SETUP_STREAM(printCHAR, NULL, _FDEV_SETUP_WRITE);
 static command_hanlder_t cmdHandler = NULL;
 
 
@@ -64,7 +62,7 @@ static void push_from_out_buf_to_uart() {
     }
 }
 
-void pushChar(char character) {
+void log_char(char character) {
     buf_write(&out, character);
     if (USART0.STATUS & USART_DREIF_bm) {
         push_from_out_buf_to_uart();
@@ -73,30 +71,71 @@ void pushChar(char character) {
 
 
 int printCHAR(char character, FILE *stream) {
-    pushChar(character);
+    log_char(character);
     return 0;
 }
 
 
 int printCHAR(char character, FILE *stream);
 
+static void myPuts(char *str) {
+    while (*str) {
+        log_char(*str++);
+    }
+}
 
 void printPrompt() {
     *inPtr = '\0';
-    printf("\r>%s",  in);
+    log_char('\r');
+    log_char('>');
+    myPuts(in);
 }
 
-void log_info(char *str, ...) {
-    va_list ap;
+static inline void outputHexNibble(uint8_t nibble) {
+    log_char(nibble < 0x0a ? '0' + nibble : 'a' + nibble - 10);
+}
 
-    va_start(ap, str);
+static void log_hex(uint8_t val) {
+    outputHexNibble(val >> 4);
+    outputHexNibble(val & 0x0F);
+}
 
-    pushChar('\r');
-    pushChar(' ');
-    vprintf(str, ap);
-    va_end(ap);
-    pushChar('\r');
-    pushChar('\n');
+void log_uint24(char *str, uint32_t val) {
+    myPuts(" \r");
+    myPuts(str);
+    myPuts(" 0x");
+    log_hex(val >> 16);
+    log_hex(val >> 8);
+    log_hex(val);
+    log_char('\r\n');
+    printPrompt();
+}
+
+
+void log_uint16(char *str, uint16_t val) {
+    myPuts(" \r");
+    myPuts(str);
+    myPuts(" 0x");
+    log_hex(val >> 8);
+    log_hex(val);
+    log_char('\r\n');
+    printPrompt();
+}
+
+void log_uint8(char *str, uint8_t val) {
+    myPuts(" \r");
+    myPuts(str);
+    myPuts(" 0x");
+    log_hex(val);
+    log_char('\r\n');
+    printPrompt();
+}
+
+
+void log_info(char *str) {
+    myPuts(" \r");
+    myPuts(str);
+    log_char('\r\n');
     printPrompt();
 }
 
@@ -118,22 +157,22 @@ void sendCommandResponse(command_response_t response) {
             // Do nothing right now, because we expect a later system to call this again with the real response.
             return;
         case CMD_OK: 
-            printf("\r<OK\r\n");        
+            myPuts("\r<OK\n");        
             break;
         case CMD_NO_OP: 
-            printf("\r<NOOP\r\n");        
+            myPuts("\r<NOOP\n");        
             break;
         case CMD_BAD_INPUT: 
-            printf("\r<!Bad Input\r\n");        
+            myPuts("\r<!Bad Input\n");        
             break;
         case CMD_FAIL: 
-            printf("\r<!Failed\r\n");        
+            myPuts("\r<!Failed\n");        
             break;
         case CMD_FULL: 
-            printf("\r<!Full\r\n");        
+            myPuts("\r<!Full\n");        
             break;
         case CMD_BUSY:
-            printf("\r<!Busy\r\n");        
+            myPuts("\r<!Busy\n");        
             break;
     }
     printPrompt();
@@ -148,12 +187,12 @@ ISR(USART0_RXC_vect) {
 
     if ((inPtr-in) == INBUF_SZ) {
         inPtr = in; // Reset it back to an empty command. 
-        printf("OVERFLOW\r\n>");
+        puts("OVERFLOW\r>");
     }
 
     if (ch == '\r') {
-        pushChar('\r'); 
-        pushChar('\n'); // add a newline to put us on the next line.
+        log_char('\r'); 
+        log_char('\n'); // add a newline to put us on the next line.
         *inPtr = '\0';
         
         command_response_t response = cmdHandler ? cmdHandler(in) : CMD_NO_OP;
@@ -166,12 +205,12 @@ ISR(USART0_RXC_vect) {
         // Backspace
         if (inPtr > in) {
             inPtr--;
-            pushChar(8);
-            pushChar(' ');
-            pushChar(8);
+            log_char(8);
+            log_char(' ');
+            log_char(8);
         }
     } else {
-        pushChar(ch); // Echo it back out to the client.
+        log_char(ch); // Echo it back out to the client.
         *inPtr++ = ch;
     }
 }
@@ -203,9 +242,6 @@ void console_init(command_hanlder_t handler) {
     // Enable TX and RX
     USART0.CTRLB |= USART_TXEN_bm | USART_RXEN_bm;
 
-    // Switch stdout for our character printing version.
-    stdout = &mystdout;
-
-    printf("\r\n System Started\r\n");
+    myPuts("\r\n System Started\r\n");
     printPrompt();
 }

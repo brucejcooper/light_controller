@@ -19,7 +19,13 @@ typedef enum {
 typedef command_response_t (*command_hanlder_t)(char *cmd);
 
 void console_init(command_hanlder_t handler);
-void log_info(char *str, ...);
+
+void log_uint24(char *str, uint32_t val);
+void log_uint16(char *str, uint16_t val);
+void log_uint8(char *str, uint8_t val);
+void log_info(char *str);
+void log_char(char character);
+
 void sendCommandResponse(command_response_t response);
 void printPrompt();
 #endif

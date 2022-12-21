@@ -23,6 +23,17 @@ void set_input_pulse_handler(isr_pulse_handler_t tcb0) {
     tcb0_handler = tcb0;
 }
 
+// TODO this and the above are basically the same thing.  Refactor.
+void set_incoming_pulse_handler(isr_pulse_handler_t tcb0) {
+    // clear any existing ISRS
+    TCB0.INTFLAGS = TCB_CAPT_bm;
+    tcb0_handler = tcb0;
+    TCB0.INTCTRL = tcb0_handler ? TCB_CAPT_bm : 0;
+}
+
+
+
+
 void set_output_pulse_handler(isr_handler_t h) {
     tca0_cmp_handler = h;
 }
@@ -70,17 +81,15 @@ void clearTimeout() {
 void set_isrs(isr_handler_t tca0_cmp, isr_pulse_handler_t tcb0) {
     // clear any existing ISRS
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm | TCA_SINGLE_CMP2_bm;
-    TCB0.INTFLAGS = TCB_CAPT_bm;
 
     tca0_cmp_handler = tca0_cmp;
-    tcb0_handler = tcb0;
 
     if (tca0_cmp_handler) {
         TCA0.SINGLE.INTCTRL |= TCA_SINGLE_CMP0_bm;
     } else {
         TCA0.SINGLE.INTCTRL &= ~TCA_SINGLE_CMP0_bm;
     }
-    TCB0.INTCTRL = tcb0_handler ? TCB_CAPT_bm : 0;
+    set_incoming_pulse_handler(tcb0);
 }
 
 
@@ -94,10 +103,10 @@ ISR(TCA0_CMP0_vect) {
 
 
 ISR(TCA0_OVF_vect) {
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear flag
     if (tca0_ovf_handler) {
         tca0_ovf_handler();
     }
-    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear flag
 }
 
 

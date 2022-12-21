@@ -6,6 +6,7 @@
 #include "intr.h"
 #include "timing.h"
 #include "config.h"
+#include <string.h>
 
 /*
 from https://onlinedocs.microchip.com/pr/GUID-0CDBB4BA-5972-4F58-98B2-3F0408F3E10B-en-US-1/index.html?GUID-DA5EBBA5-6A56-4135-AF78-FB1F780EF475
@@ -53,8 +54,8 @@ typedef enum {
     CMD_QueryVersionNumber = 0x34, // Device Command			0x34			Numeric	
     CMD_QueryNumberOfInstances = 0x35, // Device Command			0x35			Numeric	
     CMD_QueryContentDTR0 = 0x36, // Device Command			0x36		DTR0	Numeric	
-    CMD_QueryContentDTR0 = 0x37, // Device Command			0x37		DTR1	Numeric	
-    CMD_QueryContentDTR0 = 0x38, // Device Command			0x38		DTR2	Numeric	
+    CMD_QueryContentDTR1 = 0x37, // Device Command			0x37		DTR1	Numeric	
+    CMD_QueryContentDTR2 = 0x38, // Device Command			0x38		DTR2	Numeric	
     CMD_QueryRandomAddressH = 0x39, // Device Command			0x39			Numeric	
     CMD_QueryRandomAddressM = 0x3a, // Device Command			0x3a			Numeric	
     CMD_QueryRandomAddressL = 0x3b, // Device Command			0x3b			Numeric	
@@ -190,7 +191,7 @@ typedef enum {
 //     }
 // }
 
-static response_type_t processSpecialDeviceCommand(special_device_command_t cmd, uint8_t param, uint8_t *response) {
+static response_type_t processSpecialDeviceCommand(special_device_command_t cmd, uint8_t param, uint8_t param2, uint8_t *response) {
     switch (cmd) {
         case CMD_Terminate:
         case CMD_Initialise:
@@ -216,19 +217,22 @@ static response_type_t processSpecialDeviceCommand(special_device_command_t cmd,
             config.dtr.bytes[2] = param;
             return RESPONSE_IGNORE; 
         case CMD_SendTestframe:
+        case CMD_DirectWriteMemory:
+        case CMD_DTR1DTR0:
+        case CMD_DTR2DTR1:
+            break;
     }
+    return RESPONSE_IGNORE;
 
 }
 
 
 static response_type_t processCommand(receive_event_received_t *evt, uint8_t *response) {
-    if (evt->numBits == 24) {
-        log_info("Processing command 0x%08lx", evt->data);
+    if (evt->numBits != 24) {
+        log_uint24("IGN", evt->data);
         // By default, ignore all commands
-        return RESPONSE_NACK;
+        return RESPONSE_IGNORE;
     } 
-
-
 
 
     /*
@@ -243,7 +247,8 @@ Type + Instance Number event	b10TTTTT0	b1IIIIIDD	bDDDDDDDD				b23 ==1, b22 = 0 &
     */
 
     uint8_t cmd[3];
-    memcpy(cmd, ((uint8_t) (&evt->data))+1, 3);
+    memcpy(cmd, ((uint8_t *) (&evt->data))+1, 3);
+    uint8_t deviceId = 0;
 
 
     if (cmd[0] & 0x01) {
@@ -252,35 +257,37 @@ Type + Instance Number event	b10TTTTT0	b1IIIIIDD	bDDDDDDDD				b23 ==1, b22 = 0 &
         switch (discrim) {
             case 0:
                 // Device command
-                uint8_t deviceId = (cmd[0] >> 1) & 0x1F;
+                deviceId = (cmd[0] >> 1) & 0x1F;
 
                 if (cmd[1] == 0xFE) {
                     // Standard Device command
                 } else  {
                     // Device Instance Command
                 }
+                break;
             case 1:
                 break;
             case 2:
                 break;
             case 3: 
                 // Special Device Command (Broadcasts)
-                if (cmd[0] = 0xC1) {
-                    return processSpecialDeviceCommand(cmd[1], cmd[2], response);
+                if (cmd[0] == 0xC1) {
+                    return processSpecialDeviceCommand(cmd[1], cmd[2], 0, response);
                 } else {
                     switch (cmd[0]) {
                         case CMD_DirectWriteMemory:
                         case CMD_DTR1DTR0:
                         case CMD_DTR2DTR1:
+                            return processSpecialDeviceCommand(cmd[0], cmd[1], cmd[2], response);
+                            break;
                     }
                 }
                 break;
-
         }
     } else {
         // its an event.
     }
-    if ((cmd[0] & 0xC1 == 0x01) && cmd[1] == 0xFE) {
+    if ((cmd[0] && 0xC1 == 0x01) && cmd[1] == 0xFE) {
         // Its a device command.
         switch (cmd[2]) {
             case CMD_IdentifyDevice:
@@ -289,7 +296,8 @@ Type + Instance Number event	b10TTTTT0	b1IIIIIDD	bDDDDDDDD				b23 ==1, b22 = 0 &
     }
     
     // We only respond to 24 bit commands, as we are a controller.
-    log_info("Ignoring 0x%08lx (%d bits)", evt->data, evt->numBits);
+    log_uint24("Ignoring", evt->data);
+    log_uint8("Bits", evt->numBits);
     return RESPONSE_IGNORE;
 }
 
@@ -299,7 +307,7 @@ static void transmit_response_completed() {
 }
 
 static void transmit_response() {
-    log_info("Responding 0x%02x", response);
+    log_uint8("Responding", response);
     transmit(response, 8, transmit_response_completed);
 }
 
@@ -307,16 +315,15 @@ static void responseFromOtherDeviceReceived(receive_event_t *evt) {
    switch (evt->type) {
         case RECEIVE_EVT_RECEIVED:
             if (evt->rcv.numBits == 8) {
-                log_info("Other device response 0x%02x", (uint8_t) evt->rcv.data);
+                log_uint8("OTH", (uint8_t) evt->rcv.data);
             } else {
-                log_info("received illegal response length of %d", evt->rcv.numBits);
+                log_uint8("received illegal response length of", evt->rcv.numBits);
             }
             break;
         case RECEIVE_EVT_INVALID_SEQUENCE:
             log_info("Invalid DALI sequence received while waiting for response");
             break;
-        case RECEIVE_EVT_NO_DATA_RECEIVED_IN_PERIOD:
-            break;
+        // Ignore other responses
     }
     transmitNextCommandOrWaitForRead();
 }
@@ -339,15 +346,19 @@ static void commandReceived(receive_event_t *evt) {
                     break;
                 case RESPONSE_IGNORE:
                     // Potentially read in a response from the other device.
+                    // log_info("Consuming other device response");
                     waitForRead(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), responseFromOtherDeviceReceived);
                     break;
             }
             break;
         case RECEIVE_EVT_INVALID_SEQUENCE:
             log_info("Invalid DALI sequence received");
+            startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), transmitNextCommandOrWaitForRead);
+
             break;
         case RECEIVE_EVT_NO_DATA_RECEIVED_IN_PERIOD:
             log_info("Impossible timeout received");
+            startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), transmitNextCommandOrWaitForRead);
             break;
     }
 }

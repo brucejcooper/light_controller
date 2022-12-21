@@ -35,12 +35,12 @@ void initialiseRNG() {
     // Change ADC0 to a floating pin;
     // read some values off the ADC,
     // call srand.  At the moment, this is going to cause a lot of clashes :P
-    srand(1);
+    // srand(1);
 }
 
 void randomiseSearchAddr() {
     for (uint8_t i = 0; i < 3; i++) {
-        config.searchAddr[i] = rand();
+        // config.searchAddr[i] = rand();
     }
 }
 

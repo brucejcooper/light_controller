@@ -21,6 +21,7 @@
 #include "state_machine.h"
 #include "outgoing_commands.h"
 #include "config.h"
+#include "timers.h"
 
 static command_response_t command_parser(char *cmd) {
     uint8_t len = strlen(cmd);
@@ -75,7 +76,7 @@ static command_response_t command_parser(char *cmd) {
             //     transmit(sendCommandResponse);
             //     return CMD_DEFERRED_RESPONSE;
             case 'L':
-                log_info("Line level: %d", (AC0.STATUS & AC_STATE_bm) ? 1 : 0);
+                log_uint8("Line level:", (AC0.STATUS & AC_STATE_bm) ? 1 : 0);
                 return CMD_OK;
             case '0':
                 enqueueCommand(COMMAND_Off, 0, NULL, NULL);
@@ -89,7 +90,7 @@ static command_response_t command_parser(char *cmd) {
 }
 
 int main(void) {
-    button_event_t buttonEvents[NUM_BUTTONS];
+    // button_event_t buttonEvents[NUM_BUTTONS];
     console_init(command_parser);
 
     retrieveConfig();
@@ -107,35 +108,13 @@ int main(void) {
     EVSYS.ASYNCCH0 = EVSYS_ASYNCCH0_AC0_OUT_gc;
     EVSYS.ASYNCUSER0 = EVSYS_ASYNCUSER0_ASYNCCH0_gc; // Set TCB0 to use ASYNCHCH0   
 
+    initialise_timers();
     buttons_init();
     transmitNextCommandOrWaitForRead();
     sei();
 
     while (1) {
-        bool allIdle = scan_buttons(buttonEvents);
-        for (uint8_t i = 0; i < NUM_BUTTONS; i++) {
-            switch (buttonEvents[i]) {
-                case EVENT_PRESSED:
-                    log_info("Button %d pressed", i+1);
-                    enqueueCommand(COMMAND_RecallMaxLevel, 0, NULL, NULL);
-                break;
-
-                case EVENT_LONG_PRESSED:
-                    log_info("Button %d long pressed", i+1);
-                break;
-
-                case EVENT_RELEASED:
-                    log_info("Button %d released", i+1);
-                break;
-
-                default:
-                    // Do nothing.
-                break;
-            }
-        }
-        if (allIdle) {
-            // We're idle. go to sleep?
-        }
+        _delay_ms(1);
     }
     return 0;
 }

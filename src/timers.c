@@ -3,7 +3,6 @@
 #include <inttypes.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
-#include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
 #include "buttons.h"
@@ -11,11 +10,6 @@
 #include "timers.h"
 
 
-typedef struct timer_t {
-    timer_handler_t handler;
-    uint16_t timeout;
-    timer_t *next;
-} timer_t;
 
 static timer_t *timers = NULL;
 
@@ -68,7 +62,7 @@ static inline void disable_pit() {
 
 
 /**
- * @brief this should go off when a short timer has expired
+ * @brief this should go off when the first short timer has expired
  * 
  */
 ISR(RTC_CNT_vect) {
@@ -76,22 +70,23 @@ ISR(RTC_CNT_vect) {
         ;
     }
     uint16_t now = RTC.CNT;
-    // Check each timer to see if it has expired.
-    bool allIdle = true;
-    for (int8_t i = 0; i < MAX_TIMERS; i++) {
-        if (timers[i].handler) {
-            int16_t ttf = timeTillFire(now, timers[i].timeout);
-            if (ttf <= 0) {
-                timers[i].handler(i);
-                timers[i].handler = NULL; // All timers are single shot.
-            } else {
-                allIdle = false;
-            }
-        }
+
+    while (timers && timeTillFire(now, timers->timeout) < 0) {
+        // Cut out the timer from the LL before calling the handler, as it might re-start
+        // the timer and we want the strucutre of the LL to be correct.
+        timer_t *t = timers;
+        timer_handler_t h = timers->handler;
+        void *ctx = timers->context;
+        timers = timers->next;
+        t->next = NULL;
+        h(ctx);
     }
-    if (allIdle) {
+    if (timers) {
+        RTC.CMP = timers->timeout;
+    } else {
         disable_rtc();
     }
+
     // Clear the ISR
     RTC.INTFLAGS = RTC_CMP_bm;
 }
@@ -102,12 +97,16 @@ ISR(RTC_CNT_vect) {
  * call the handler and shit down the PIT
  */
 ISR(RTC_PIT_vect) {
-    if (long_timer.handler && long_timer.timeout && --long_timer.timeout == 0) {
-        long_timer.handler(0);
-    }
-    disable_pit();
     // Clear the ISR
     RTC.PITINTFLAGS = RTC_PI_bm;
+    if (long_timer.timeout && --long_timer.timeout == 0) {
+        disable_pit(); // Call disable first, in case the handler creates a new one.
+        timer_handler_t h = long_timer.handler;
+        if (h) {
+            long_timer.handler = NULL; // Just to be safe.
+            h(long_timer.context);
+        }
+    }
 }
 
 
@@ -115,11 +114,12 @@ ISR(RTC_PIT_vect) {
  * @brief will actually fire up to one second before the value supplied
  * 
  * @param seconds 
- * @param handler 
+ * @param handler The handler to call after seconds seconds, or NULL to disable.
  */
-void setLongTimer(uint16_t seconds, timer_handler_t handler) {
+void setLongTimer(uint16_t seconds, timer_handler_t handler, void *ctx) {
     long_timer.handler = handler;
     long_timer.timeout = seconds;
+    long_timer.context = ctx;
     if (handler) {
         enable_pit();
     } else {
@@ -127,40 +127,67 @@ void setLongTimer(uint16_t seconds, timer_handler_t handler) {
     }
 }
 
-void cancelTimer(timer_t_timer) {
-    
+void startTimer(uint16_t period, timer_handler_t handler, void *ctx, timer_t *timer) {
+    cli();
+    while (RTC.STATUS & RTC_CNTBUSY_bm) {
+        ;
+    }
+    if (timer->handler) {
+        // Its already started... cancel it first.
+        cancelTimer(timer);
+    }
+
+    uint16_t now = RTC.CNT;
+    timer->handler = handler;
+    timer->timeout = now+period;
+    timer->context = ctx;
+
+    timer_t *prev = NULL;
+    timer_t *t = timers;
+    // Step through the list until we find one that occurs _after us.
+    while (t && timer->timeout > t->timeout) {
+        prev = t;
+        t = t->next;
+    }
+    //  Insert ourselves before it.
+    timer->next = t;
+    if (prev) {
+        prev->next = timer;
+    } else {
+        // It should be at the head (t is implicitly timers), and therefore the one next to fire.
+        timers = timer;
+        // change when CMP will fire.
+        RTC.CMP = timer->timeout;
+    }
+    enable_rtc();
+    sei();
 }
 
-timer_t *createTimer(uint16_t period, timer_handler_t handler) {
-    timer_t *timer = malloc(sizeof(timer_t));
-    if (!timer) {
-        return timer;
-    
-        while (RTC.STATUS & RTC_CNTBUSY_bm) {
-            ;
-        }
-        uint16_t now = RTC.CNT;
-        timer->handler = handler;
-        timer->timeout = now+period;
-
-        timer_t *prev = NULL;
-        timer_t *t = timers;
-        // Step through the list until we find one that occurs _after us.
-        while (t && timer->timeout > t->timeout) {
-            prev = t;
-            t = t->next;
-        }
-        //  Insert ourselves before it.
-        timer->next = t;
+void cancelTimer(timer_t *timer) {
+    cli();
+    timer_t *prev = NULL;
+    timer_t *t = timers;
+    // Find our node's predecessor (we don't do doubly linked, as our lists are always really short)
+    while (t && t != timer) {
+        prev = t;
+        t = t->next;
+    };
+    if (t) {    
         if (prev) {
-            prev->next = timer;
+            prev->next = timer->next;
         } else {
-            // It should be at the head (t is implicitly timers).
-            timers = timer;
+            timers = timer->next;
+            // this changes CMP;
+            if (timers) {
+                RTC.CMP = timers->timeout;
+            } else {
+                // No more timers. 
+                disable_rtc();
+            }
         }
-        enable_rtc();
     }
-    return timer;
+    timer->next = NULL;
+    sei();
 }
 
 
@@ -170,9 +197,6 @@ void initialise_timers() {
     RTC.CLKSEL = RTC_CLKSEL_INT1K_gc; // Use 1.024 Khz clock divided by 2 with the prescaler
     while (RTC.STATUS & RTC_CTRLABUSY_bm) {
         ;
-    }
-    for (uint8_t i = 0; i < MAX_TIMERS; i++) {
-        timers[i].handler = NULL;
     }
     RTC.CTRLA = 0;
     RTC.INTCTRL = RTC_CMP_bm;

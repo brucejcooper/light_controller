@@ -70,7 +70,7 @@ static void at_half_bit() {
 
 
 void transmit(uint32_t val, uint8_t len, transmit_cb_t cb) {
-    log_info("Transmitting 0x%08lx(%d)", val, len);
+    log_uint24("Transmitting", val);
     callback = cb;
     (shiftReg = val << (32-len));
     bitsLeft = len;
