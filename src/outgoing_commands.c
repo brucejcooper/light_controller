@@ -39,7 +39,6 @@ static void commandTransmitted(transmit_event_t evt) {
 }
 
 void transmitCommand(uint16_t val, response_handler_t handler) {
-    log_uint16("Sending command", val);
     responseHandler = handler;
     transmit(val, 16, commandTransmitted);
 }

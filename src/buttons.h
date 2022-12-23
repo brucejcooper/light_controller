@@ -6,11 +6,18 @@ typedef enum {
   EVENT_PRESSED,
   EVENT_LONG_PRESSED,
   EVENT_RELEASED,
-} button_event_t;
+} button_event_type_t;
 
 #define NUM_BUTTONS (1)
+
+typedef struct {
+  button_event_type_t type;
+  uint8_t index;
+} button_event_t;
+
 
 extern void buttons_init();
 void buttons_set_wake_from_sleep_enabled(bool enabled);
 
+bool poll_for_events(button_event_t *evt);
 #endif

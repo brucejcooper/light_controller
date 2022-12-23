@@ -5,12 +5,13 @@
 #include <avr/sleep.h>
 #include <util/atomic.h>
 #include <stdbool.h>
+#include <string.h>
 #include "buttons.h"
 #include "console.h"
 #include "timers.h"
-#include "outgoing_commands.h"
 #include "state_machine.h"
-
+#include "sched_callback.h"
+#include <stdlib.h>
 
 // Switch is on PB2
 #define SWITCH_PORT PORTA
@@ -19,45 +20,55 @@
 #define LONGPRESS_START_TICKS 512
 #define LONGPRESS_REPEAT_TICKS 256
 
-
-
 struct button_t;
 
-typedef button_event_t (*state_handler_t)(struct button_t *btn, uint8_t newVal);
 
 typedef struct button_t {
+    uint8_t index;
     uint8_t mask;
     uint8_t click_count;
     timer_t timer;
 } button_t;
+
 
 /**
  * @brief Timeout for when next action will happen 
  * if positive, this is the number of ticks until the next action for that button
  * if negative, then timer is disabled for that button.
  */
-button_t buttons[NUM_BUTTONS];
+static button_t buttons[NUM_BUTTONS];
+static user_mode_callback_t button_callback = NULL;
+
+
 
 static void button_debounced(void *ctx);
 static void button_released_debounce(void *ctx);
 
-static uint8_t pressedCount = 0;
+
+static void pushEvent(button_event_type_t type, uint8_t idx) {
+    button_event_t *evt = malloc(sizeof(button_event_t));
+    if (evt) {
+        evt->type = type;
+        evt->index = idx;
+        schedule_call(button_callback, evt);
+    }
+}
+
 
 static void button_pressed(button_t *btn) {
-    log_info("Pressed");
-    // TODO emit a button press event
-    enqueueCommand(((pressedCount++) % 2) ? COMMAND_RecallMaxLevel : COMMAND_Off, 0, NULL, NULL);
+    // log_info("Pressed");
+    // Upon press, we want to know the current state of the lamp - Ask it. 
+    pushEvent(EVENT_PRESSED, btn->index);
 
     // Wait for the debounce period before we do anything else (we'll check level then)
     startTimer(DEBOUNCE_TICKS, button_debounced, btn, &(btn->timer));
 }
 
 static void button_released(button_t *btn) {
-    log_info("Released");
     // Its a release
     // cancel any existing timers for this button.
     cancelTimer(&btn->timer);
-    // TODO emit a button release event
+    pushEvent(EVENT_RELEASED, btn->index);
 
     // Wait for the debounce period before we do anything else (we'll check level then)
     startTimer(DEBOUNCE_TICKS, button_released_debounce, btn, &(btn->timer));    
@@ -106,10 +117,11 @@ static void wait_for_release(button_t *btn) {
     SWITCH_PORT.INTFLAGS = btn->mask;
 }
 
-void buttons_init() {
+void buttons_init(user_mode_callback_t cb) {
     // combine all the button masks into one mask.
     uint8_t mask = 0;
     buttons[0].mask = PIN6_bm;
+    buttons[0].index = 1;
     // buttons[1].mask = PIN3_bm;
     // buttons[2].mask = PIN4_bm;
     // buttons[3].mask = PIN5_bm;
@@ -129,6 +141,7 @@ void buttons_init() {
             wait_for_release(&buttons[i]);
         }
     }
+    button_callback = cb;
 }
 
 
@@ -150,8 +163,6 @@ static void button_long_pressed(void *ctx) {
 
 
 static void button_debounced(void *ctx) {
-    log_info("Db");
-
     button_t *btn = (button_t *) ctx;
 
     if(SWITCH_PORT.IN & btn->mask) {
@@ -168,7 +179,6 @@ static void button_debounced(void *ctx) {
 
 
 static void button_released_debounce(void *ctx) {
-    log_info("Dbr");
     button_t *btn = (button_t *) ctx;
 
     if(SWITCH_PORT.IN & btn->mask) {

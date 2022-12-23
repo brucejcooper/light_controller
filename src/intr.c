@@ -14,26 +14,15 @@
 #include "intr.h"
 
 static isr_handler_t timeout_handler = NULL;
-static isr_pulse_handler_t tcb0_handler = NULL;
-
-void set_input_pulse_handler(isr_pulse_handler_t tcb0) {
-    tcb0_handler = tcb0;
-}
-
-// TODO this and the above are basically the same thing.  Refactor.
-void set_incoming_pulse_handler(isr_pulse_handler_t tcb0) {
-    // clear any existing ISRS
-    TCB0.INTFLAGS = TCB_CAPT_bm;
-    tcb0_handler = tcb0;
-    TCB0.INTCTRL = tcb0_handler ? TCB_CAPT_bm : 0;
-}
 
 
 void startSingleShotTimer(uint16_t to, isr_handler_t callback) {
     timeout_handler = callback;
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear any existing flag
     TCA0.SINGLE.INTCTRL |= TCA_SINGLE_OVF_bm;
-    TCA0.SINGLE.CNT = 0;  // We try to always reset timer counters, but make sure. 
+    if (TCA0.SINGLE.CTRLA == 0) {
+        TCA0.SINGLE.CNT = 0;  // We try to always reset timer counters, but make sure. 
+    }
     TCA0.SINGLE.PER = to; // Send ISR when clock reaches PER.
     TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_NORMAL_gc; // normal counter mode, no output.
     TCA0.SINGLE.CTRLA =  TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm; // Make the timeout clock run
@@ -55,21 +44,18 @@ ISR(TCA0_OVF_vect) {
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm; // Clear flag
 
     isr_handler_t callback = timeout_handler;
+    timeout_handler = NULL;
+    // callback = NULL;
     // Stop the timer
-    clearTimeout();
+    // clearTimeout();
     // Call the handler
     if (callback) {
         callback();
     }
-}
-
-
-ISR(TCB0_INT_vect) {
-    uint16_t cnt = TCB0.CCMP; // This will clear the interrupt flag.
-    TCB0.EVCTRL ^= TCB_EDGE_bm;  // We always toggle the edge we're looking for. 
-    TCA0.SINGLE.CNT = 0; // Reset Timeout clock
-
-    if (tcb0_handler) {
-        tcb0_handler(cnt);
+    // If the Handler re-instated a timer or they started transmitting (changing the mode to non NORMAL) 
+    // we keep the timer going from where it was.
+    // If nothing was (re)started, we stop the timer.
+    if (!timeout_handler && (TCA0.SINGLE.CTRLB && TCA_SINGLE_WGMODE_gp) == TCA_SINGLE_WGMODE_NORMAL_gc) {
+        clearTimeout();
     }
 }

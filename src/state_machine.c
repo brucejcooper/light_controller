@@ -36,7 +36,6 @@ static void commandResponseHandler(outgoing_command_response_type_t responseType
 
 static void executeQueuedCommand() {
     canTransmitImmediately = false;
-    // TODO translate cmd into a real dali command. Currently all broadcast.
     // Index 0 is broadcast.
     uint8_t address = commands[0].index == 0 ? 0xFF : config.targets[commands[0].index-1];
     transmitCommand((address << 8) | commands[0].cmd, commandResponseHandler);
@@ -48,7 +47,7 @@ bool enqueueCommand(outgoing_command_t cmd, uint8_t index, response_context_hand
         return false;
     }
 
-    if (index > config.numButtons) {
+    if (index > 5) {
         log_info("Illegal device index supplied");
         return false;
     }

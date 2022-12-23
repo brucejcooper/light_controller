@@ -1,11 +1,13 @@
 #include "config.h"
 #include <avr/eeprom.h>
 #include <stdlib.h>
+#include "console.h"
+
 
 config_t config = {
     .shortAddr = 0x40, // This is another impossible value, but one that isn't the same as a non-initialised flash
     .numButtons = 5,
-    .targets = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }, 
+    .targets = { MAKE_DALIADDR(0), MAKE_DALIADDR(1), MAKE_DALIADDR(2), MAKE_DALIADDR(3), MAKE_DALIADDR(4) }, 
     .shortPressTimer = 500/20,  // In incfrements of 20 msec.
     .doublePressTimer = 200/20,
     .repeatTimer = 160/20,
@@ -19,15 +21,17 @@ config_t config = {
 };
 
 
-
 void persistConfig() {
-    eeprom_write_block(&config, &USERROW, PERSISTENT_CONFIG_SIZE);
+    // eeprom_write_block(&config, &USERROW, PERSISTENT_CONFIG_SIZE);
 }
 
 
 void retrieveConfig() {
-    if (eeprom_read_byte((const uint8_t *) &USERROW.USERROW0) != 0xFF) {
-        eeprom_read_block(&config, &USERROW, PERSISTENT_CONFIG_SIZE);
+    if (USERROW.USERROW0 != 0xFF) {
+        // log_info("Reading EEPROM");
+        // eeprom_read_block(&config, &USERROW, PERSISTENT_CONFIG_SIZE);
+    } else {
+        // log_info("No stored EEPROM");
     }
 }
 

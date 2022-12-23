@@ -2,11 +2,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "state_machine.h"
-#include "console.h"
 #include "intr.h"
 #include "timing.h"
 #include "config.h"
 #include <string.h>
+#include <stdlib.h>
+#include "sched_callback.h"
+#include "incoming_commands.h"
 
 /*
 from https://onlinedocs.microchip.com/pr/GUID-0CDBB4BA-5972-4F58-98B2-3F0408F3E10B-en-US-1/index.html?GUID-DA5EBBA5-6A56-4135-AF78-FB1F780EF475
@@ -19,14 +21,7 @@ times) and no later than 10.5 ms (approximately 25 half-bit periods). Once the b
 received in its entirety, the control device must wait a minimum of 2.4 ms (approximately six half-bit periods) 
 before transmitting the next forward frame (see Figure 3).
 */
-static uint8_t response;
 
-typedef enum {
-    RESPONSE_RESPOND,
-    RESPONSE_NACK,
-    RESPONSE_IGNORE,
-    RESPONSE_REPEAT,
-} response_type_t;
 
 
 typedef enum {
@@ -152,45 +147,22 @@ typedef enum {
 } pushbutton_command_t;
 
 
+static user_mode_callback_t commandObserver = NULL;
+static command_event_t currentCommand;
 
 
-// typedef enum {
-//     DIRECT_POWER_TO_ME,
-//     ADDRESSED_TO_ME,
-//     NOT_ADDRESSED_TO_ME,
-//     SPECIAL_COMMAND,
-//     BROADCAST_ADDRESSED,
-//     BROADCAST
-// } address_type_t;
+void notifyCallCompletion() {
+    if (commandObserver) {
+        // As the callback will happen asynchronously, we make a copy of the current command..
+        command_event_t *evt = malloc(sizeof(command_event_t));
+        if (evt) {
+            memcpy(evt, &currentCommand, sizeof(command_event_t));
+        }
+        schedule_call(commandObserver, evt);
+    }
+}
 
 
-
-// address_type_t getAddressType(uint8_t addrByte) {
-//     if (addrByte && 0xFE == 0xFC) {
-//         return BROADCAST_ADDRESSED;
-//     }
-//     if (addrByte && 0xFE == 0xFE) {
-//         return BROADCAST;
-//     }
-//     if (addrByte > 0xCB) {
-//         return NOT_ADDRESSED_TO_ME;
-//     }
-//     if (addrByte >= 0xA0) {
-//         return SPECIAL_COMMAND;
-//     }
-
-//     bool addressedToGroup = addrByte & 0x80;
-//     bool directCommand = addrByte & 0x01;
-//     addrByte >>= 1;
-//     if (addressedToGroup) {
-//         addrByte &= 0x0F;
-
-//         // userData->groups 
-//     } else {
-//         // Its an address
-//         addrByte &= 0x3F;
-//     }
-// }
 
 static response_type_t processSpecialDeviceCommand(special_device_command_t cmd, uint8_t param, uint8_t param2, uint8_t *response) {
     switch (cmd) {
@@ -230,7 +202,6 @@ static response_type_t processSpecialDeviceCommand(special_device_command_t cmd,
 
 static response_type_t processCommand(receive_event_received_t *evt, uint8_t *response) {
     if (evt->numBits != 24) {
-        log_uint24("IGN", evt->data);
         // By default, ignore all commands
         return RESPONSE_IGNORE;
     } 
@@ -249,7 +220,7 @@ Type + Instance Number event	b10TTTTT0	b1IIIIIDD	bDDDDDDDD				b23 ==1, b22 = 0 &
 
     uint8_t cmd[3];
     memcpy(cmd, ((uint8_t *) (&evt->data))+1, 3);
-    uint8_t deviceId = 0;
+    // uint8_t deviceId = 0;
 
 
     if (cmd[0] & 0x01) {
@@ -258,7 +229,7 @@ Type + Instance Number event	b10TTTTT0	b1IIIIIDD	bDDDDDDDD				b23 ==1, b22 = 0 &
         switch (discrim) {
             case 0:
                 // Device command
-                deviceId = (cmd[0] >> 1) & 0x1F;
+                // deviceId = (cmd[0] >> 1) & 0x1F;
 
                 if (cmd[1] == 0xFE) {
                     // Standard Device command
@@ -294,48 +265,42 @@ Type + Instance Number event	b10TTTTT0	b1IIIIIDD	bDDDDDDDD				b23 ==1, b22 = 0 &
             case CMD_IdentifyDevice:
             break;
         }
-    }
-    
+    }    
     // We only respond to 24 bit commands, as we are a controller.
-    log_uint24("Ignoring", evt->data);
-    log_uint8("Bits", evt->numBits);
     return RESPONSE_IGNORE;
 }
 
 static void transmit_response_completed() {
     // 3. at least 6 half bit periods (2.4ms) before processing a new command
+    notifyCallCompletion();
     startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_POST_RESPONSE_DELAY_MSEC), transmitNextCommandOrWaitForRead);
 }
 
 static void transmit_response() {
-    log_uint8("Responding", response);
-    transmit(response, 8, transmit_response_completed);
+    transmit(currentCommand.response.mine.val, 8, transmit_response_completed);
 }
 
 static void responseFromOtherDeviceReceived(receive_event_t *evt) {
-   switch (evt->type) {
-        case RECEIVE_EVT_RECEIVED:
-            if (evt->rcv.numBits == 8) {
-                log_uint8("OTH", (uint8_t) evt->rcv.data);
-            } else {
-                log_uint8("received illegal response length of", evt->rcv.numBits);
-            }
-            break;
-        case RECEIVE_EVT_INVALID_SEQUENCE:
-            log_info("Invalid DALI sequence received while waiting for response");
-            break;
-        // Ignore other responses
-    }
+    memcpy(&currentCommand.response.other, evt, sizeof(receive_event_t));
+    notifyCallCompletion();
     transmitNextCommandOrWaitForRead();
 }
 
+
+
+void setCommandObserver(user_mode_callback_t cb) {
+    commandObserver = cb;
+}
+
+
 static void commandReceived(receive_event_t *evt) {
-    log_char('!');
-    response_type_t outcome;
     switch (evt->type) {
         case RECEIVE_EVT_RECEIVED:
-            outcome = processCommand(&(evt->rcv), &response);
-            switch (outcome) {
+            currentCommand.val = evt->rcv.data;
+            currentCommand.len = evt->rcv.numBits;
+            currentCommand.outcome = processCommand(&(evt->rcv), &currentCommand.response.mine.val);
+            
+            switch (currentCommand.outcome) {
                 case RESPONSE_RESPOND:
                     // 1. Wait 5.5 ms (the minimum delay)
                     // 2. Then send the response (1 byte)
@@ -343,23 +308,25 @@ static void commandReceived(receive_event_t *evt) {
                     break;
                 case RESPONSE_NACK:
                     // Wait for maximum response time.  Ignore any inputs during this time.  
-                    log_info("(not) Responding NACK");
+                    notifyCallCompletion();
                     startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), transmitNextCommandOrWaitForRead);
                     break;
+                case RESPONSE_REPEAT:
+                    // TODO
+                case RESPONSE_INVALID_INPUT:
+                    // This isn't a valid outcome from processCommand.
                 case RESPONSE_IGNORE:
                     // Potentially read in a response from the other device.
-                    // log_info("Consuming other device response");
-                    waitForRead(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC-5), responseFromOtherDeviceReceived);
+                    waitForRead(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), responseFromOtherDeviceReceived);
                     break;
             }
             break;
-        case RECEIVE_EVT_INVALID_SEQUENCE:
-            log_info("Invalid DALI sequence received");
-            startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), transmitNextCommandOrWaitForRead);
-
-            break;
         case RECEIVE_EVT_NO_DATA_RECEIVED_IN_PERIOD:
-            log_info("Impossible timeout received");
+            // THis should _NEVER_ happen because we always have 0 timeout to get here- treat it the same as below.
+        case RECEIVE_EVT_INVALID_SEQUENCE:
+            currentCommand.outcome = RESPONSE_INVALID_INPUT;
+            currentCommand.val = 0;
+            currentCommand.len = 0;
             startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), transmitNextCommandOrWaitForRead);
             break;
     }
@@ -367,7 +334,6 @@ static void commandReceived(receive_event_t *evt) {
 
 
 void wait_for_command() {
-    log_char('?');
     waitForRead(0, commandReceived);
 }
 

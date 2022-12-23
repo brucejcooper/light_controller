@@ -15,14 +15,33 @@
 #include "timing.h"
 #include "state_machine.h"
 
+typedef void (*isr_pulse_handler_t)(uint16_t);
+
 
 static volatile receive_cb_t receive_callback;
 static receive_event_t evt;
 static uint8_t lastBit;
-
 static void pulse_after_half_bit(uint16_t pulseWidth);
 static void pulse_after_bit_boundary(uint16_t pulseWidth);
 static void startbit_started(uint16_t _ignored);
+static isr_pulse_handler_t tcb0_handler = NULL;
+
+
+
+
+void set_input_pulse_handler(isr_pulse_handler_t tcb0) {
+    tcb0_handler = tcb0;
+}
+
+// TODO this and the above are basically the same thing.  Refactor.
+void set_incoming_pulse_handler(isr_pulse_handler_t tcb0) {
+    // clear any existing ISRS
+    TCB0.INTFLAGS = TCB_CAPT_bm;
+    tcb0_handler = tcb0;
+    TCB0.INTCTRL = tcb0_handler ? TCB_CAPT_bm : 0;
+}
+
+
 
 static inline void pushBit() {
     // pushChar(lastBit ? '1': '0');
@@ -43,7 +62,7 @@ static void invalid_sequence_received() {
 
 static void pulse_after_start(uint16_t pulseWidth) {
     if (!isHalfBit(pulseWidth)) {
-        log_uint16("Start wrong", pulseWidth);
+        evt.rcv.data = pulseWidth; // Record the bad pulse into the data so it can be logged.  Bit position will also be relevant.
         invalid_sequence_received();
     };
     // pushChar('S');
@@ -61,14 +80,14 @@ static void pulse_after_half_bit(uint16_t pulseWidth) {
         lastBit = lastBit ? 0 : 1;
         pushBit();
     } else {
-        log_uint16("invalid pulse width", pulseWidth);
+        evt.rcv.data = pulseWidth; // Record the bad pulse into the data so it can be logged.  Bit position will also be relevant.
         invalid_sequence_received();
     }
 }
 
 static void pulse_after_bit_boundary(uint16_t pulseWidth) {
     if (!isHalfBit(pulseWidth)) {
-        log_info("Pulse from bit boundary that wasn't a half bit");
+        evt.rcv.data = pulseWidth; // Record the bad pulse into the data so it can be logged.  Bit position will also be relevant.
         invalid_sequence_received();
     } else {
         // pushChar('H');
@@ -86,7 +105,7 @@ static void timeout_occurred() {
 
     if (!(AC0.STATUS & AC_STATE_bm)) {
         // Timeout occurred while shorted.  This shouldn't happen.
-        log_info("Timeout while shorted");
+        evt.rcv.data = 65535; // Magic value for debug.
         evt.type = RECEIVE_EVT_INVALID_SEQUENCE;
     }
     if (receive_callback) {
@@ -129,4 +148,16 @@ void startbit_started(uint16_t _ignored) {
     set_incoming_pulse_handler(pulse_after_start);
     // Start a timer that will go off after the maximum wait time (2 Bit periods) to indicate we're done.
     startSingleShotTimer(USEC_TO_TICKS(2*DALI_BIT_USECS), timeout_occurred); // We are done when no pulse is received within 2 BIT periods.
+}
+
+
+
+ISR(TCB0_INT_vect) {
+    uint16_t cnt = TCB0.CCMP; // This will clear the interrupt flag.
+    TCB0.EVCTRL ^= TCB_EDGE_bm;  // We always toggle the edge we're looking for. 
+    TCA0.SINGLE.CNT = 0; // Reset Timeout clock
+
+    if (tcb0_handler) {
+        tcb0_handler(cnt);
+    }
 }

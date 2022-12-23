@@ -1,6 +1,11 @@
-
+#ifndef __CONFIG_H__
+#define __CONFIG_H__
 #include <stdbool.h>
 #include <stdint.h>
+
+
+#define MAKE_DALIADDR(x) (((x) << 1) | 0x01)
+#define MAKE_DALI_GROUP_ADDR(x) (((x) << 1) | 0x81)
 
 
 typedef union {
@@ -42,3 +47,4 @@ void retrieveConfig();
 void initialiseRNG();
 void randomiseSearchAddr();
 int8_t searchAddressCompare();
+#endif

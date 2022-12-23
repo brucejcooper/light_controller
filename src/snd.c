@@ -72,27 +72,32 @@ static void at_half_bit() {
 
 
 void transmit(uint32_t val, uint8_t len, transmit_cb_t cb) {
-    log_uint24("Transmitting", val);
+    TCA0.SINGLE.CTRLA = 0;     // Disable timer if it was already running
+    // Disable TCB0. 
+    TCB0.CTRLA = 0;
+    TCB0.CTRLB = 0;
+    if (len == 8) {
+        log_uint8("TX", val);
+    } else if (len == 16) {
+        log_uint16("TX", val);
+    } else {
+        log_uint24("TX", val);
+    }
     callback = cb;
     (shiftReg = val << (32-len));
     bitsLeft = len;
     lastBit = 1;
 
-    // Disable TCB0. 
-    TCB0.CTRLA = 0;
-    TCB0.CTRLB = 0;
 
-    TCA0.SINGLE.CTRLA = 0;     // Disable timer if it was already running
     TCA0.SINGLE.CTRLESET = TCA_SINGLE_CMD_RESET_gc; // Reset the timer - This way it doesn't matter how many toggles there have been. 
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_CMP0_bm | TCA_SINGLE_CMP2_bm | TCA_SINGLE_OVF_bm; // Clear any existing interrupts.
-    TCA0.SINGLE.INTCTRL  = TCA_SINGLE_CMP0_bm; // Interrupt on CMP0 to update the period
     TCA0.SINGLE.CMP0 = USEC_TO_TICKS(DALI_HALF_BIT_USECS); // We want this to fire pretty much immediately.
     TCA0.SINGLE.CMP2 = 0;
     TCA0.SINGLE.CNT  = 0; // Get timer to fire immediately after starting timer
     TCA0.SINGLE.CTRLB = TCA_SINGLE_WGMODE_FRQ_gc | TCA_SINGLE_CMP2EN_bm; 
     TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm;  // start the timer.
     tca0_cmp_handler = at_half_bit;
-    TCA0.SINGLE.INTCTRL |= TCA_SINGLE_CMP0_bm; // Enable OUTPUT CMP. 
+    TCA0.SINGLE.INTCTRL  = TCA_SINGLE_CMP0_bm; // Interrupt on CMP0 to update the period
 }
 
 

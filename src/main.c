@@ -7,7 +7,6 @@
 #include <avr/sleep.h>
 #include <avr/pgmspace.h>
 #include <avr/wdt.h>
-#include <stdio.h>
 #include <util/atomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -20,80 +19,73 @@
 #include "buttons.h"
 #include "state_machine.h"
 #include "outgoing_commands.h"
+#include "incoming_commands.h"
 #include "config.h"
 #include "timers.h"
+#include "sched_callback.h"
 
-static command_response_t command_parser(char *cmd) {
-    uint8_t len = strlen(cmd);
-    // char *endptr;
+uint8_t currentLevels[5];
 
-    if (len == 0) {
-        // Empty command. Do nothing!
-        return CMD_NO_OP;
-    } else {
-        switch (cmd[0]) {
-            // Transmit a valid DALI command
-            // case 'T':
-            //     // We only accept 16 and 24 bit payloads for T
-            //     if (!(len == 5 || len == 7)) {
-            //         return CMD_BAD_INPUT;
-            //     }
-            //     uint32_t val = strtol(cmd+1, &endptr, 16);
-            //     if (*endptr) {
-            //         // We found an invalid character
-            //         return CMD_BAD_INPUT;
-            //     }
-            //     transmit(val, (len-1)*4);
-            //     return CMD_DEFERRED_RESPONSE;
 
-            // Clear out any accumulated pulses. 
-            // case 'C': 
-            //     resetPulseArray();
-            //     return CMD_OK;
-
-            // append a pulse.
-            // case 'P': 
-            //     pw = USEC_TO_TICKS(atoi(cmd+1));
-            //     // Minimum pulsewidth is 10 uSec
-            //     if (pw < 34) {
-            //         return CMD_BAD_INPUT;
-            //     }
-            //     if (isPulseArrayFull()) {
-            //         return CMD_FULL;
-            //     }
-
-            //     *pulsePtr++ = pw;
-            //     *pulsePtr = 0; // Ensure that pulse array always ends with a 0.
-            //     log_info("Added pulse of %d ticks", pw);
-            //     return CMD_OK;
-
-            // Send our accumulated waveform. 
-            // case 'W': 
-            //     if (getPulseCount() % 2 == 0) {
-            //         log_info("Error - expected odd number of pulse durations");
-            //         return CMD_BAD_INPUT;
-            //     }            
-            //     transmit(sendCommandResponse);
-            //     return CMD_DEFERRED_RESPONSE;
-            case 'L':
-                log_uint8("Line level:", (AC0.STATUS & AC_STATE_bm) ? 1 : 0);
-                return CMD_OK;
-            case '0':
-                enqueueCommand(COMMAND_Off, 0, NULL, NULL);
-                return CMD_DEFERRED_RESPONSE;
-            case '1':
-                enqueueCommand(COMMAND_RecallMaxLevel, 0, NULL, NULL);
-                return CMD_DEFERRED_RESPONSE;
-        }
-    }
-    return CMD_BAD_INPUT;
+static void updateButtonStatus(outgoing_command_t cmd, uint8_t index, outgoing_command_response_type_t responseType, uint8_t response, void *context) {
+    switch (responseType) {
+        case COMMAND_RESPONSE_ERROR:
+            log_info("Error from status");
+            break;
+        case COMMAND_RESPONSE_NACK:
+            log_info("NACK from status");
+            break;
+        case COMMAND_RESPONSE_VALUE:
+            currentLevels[index-1] = response;
+            log_uint8("index", index);
+            log_uint8("lvl", response);
+            break;
+    };
 }
+
+
+void process_button_event(void *args) {
+    button_event_t *evt = (button_event_t *) args;
+    log_uint8("Button Event", evt->index << 4 | evt->type);
+
+    switch (evt->type) {
+        case EVENT_PRESSED:
+            enqueueCommand(COMMAND_QueryActualLevel, evt->index, updateButtonStatus, NULL);
+            break;
+        case EVENT_RELEASED:
+            if (currentLevels[evt->index-1]) {
+                // Its currently on, so turn it off
+                enqueueCommand(COMMAND_Off, evt->index, NULL, NULL);
+            } else {
+                // Its currently off, so turn it on to whatever its last active value was. 
+                enqueueCommand(COMMAND_GoToLastActiveLevel, evt->index, NULL, NULL);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+void command_observer(void *args) {
+    command_event_t *cmd = (command_event_t *) args;
+
+    log_cmd(cmd);
+
+}
+
+
+
 
 int main(void) {
     // button_event_t buttonEvents[NUM_BUTTONS];
-    console_init(command_parser);
-
+    console_init();
     retrieveConfig();
+    log_uint8("Short", config.shortAddr);
+    log_uint8("T1", config.targets[0]);
+    // log_uint8("T2", config.targets[1]);
+    // log_uint8("T3", config.targets[2]);
+    // log_uint8("T4", config.targets[3]);
+    // log_uint8("T5", config.targets[4]);
 
     // Set PB2 as an output, initially set to zero out (not shorted)
     PORTB.OUTCLR = PORT_INT2_bm;
@@ -108,13 +100,17 @@ int main(void) {
     EVSYS.ASYNCCH0 = EVSYS_ASYNCCH0_AC0_OUT_gc;
     EVSYS.ASYNCUSER0 = EVSYS_ASYNCUSER0_ASYNCCH0_gc; // Set TCB0 to use ASYNCHCH0   
 
+    // Make receiving the most important Interrupt - We want to deprioritise UART.
+    CPUINT.LVL0PRI = TCB0_INT_vect_num;
+
     initialise_timers();
-    buttons_init();
+    setCommandObserver(command_observer);
+    buttons_init(process_button_event);
     transmitNextCommandOrWaitForRead();
     sei();
 
     while (1) {
-        _delay_ms(1);
+        poll_calls();
     }
     return 0;
 }
