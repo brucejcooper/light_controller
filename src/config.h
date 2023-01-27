@@ -17,6 +17,7 @@ typedef enum {
     DEVMODE_NORMAL,
     DEVMODE_PROVISIONING,
     DEVMODE_WRITING,
+    DEVMODE_QUIESCENT,
 } device_mode_t;
 
 typedef struct {

@@ -6,6 +6,24 @@
 #include "snd.h"
 
 typedef enum {
+    ADDRESS_TYPE_NOT_FOR_ME,
+    ADDRESS_TYPE_EVENT,
+    ADDRESS_TYPE_SPECIAL_DEVICE_COMMAND,
+    ADDRESS_TYPE_SPECIAL_DEVICE_COMMAND_TWOARGS,
+
+    ADDRESS_TYPE_DEVICE_INSTANCE,
+    ADDRESS_TYPE_INSTANCE_GROUP,
+    ADDRESS_TYPE_INSTANCE_TYPE,
+    ADDRESS_TYPE_FEATURE_INSTANCE_NUMBER,
+    ADDRESS_TYPE_FEATURE_INSTANCE_GROUP,
+    ADDRESS_TYPE_FEATURE_INSTANCE_TYPE,
+    ADDRESS_TYPE_FEATURE_INSTANCE_BROADCAST,
+    ADDRESS_TYPE_INSTANCE_BROADCAST,
+    ADDRESS_TYPE_FEATURE_DEVICE,
+    ADDRESS_TYPE_DEVICE,
+} address_type_t;
+
+typedef enum {
     RESPONSE_RESPOND,
     RESPONSE_NACK,
     RESPONSE_IGNORE,
@@ -22,6 +40,8 @@ typedef struct {
     uint32_t val;
     uint8_t len;
     response_type_t outcome;
+    uint8_t repeatCount;
+    address_type_t addressing;
 
     union {
         receive_event_t other;

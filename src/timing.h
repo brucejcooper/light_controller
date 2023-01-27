@@ -11,7 +11,8 @@
 #define MSEC_TO_TICKS(u)    USEC_TO_TICKS((u)*1000)
 #define TICKS_TO_USECS(u)   (uint16_t) ((u)/(F_CPU/1000000.0))
 
-#define DALI_RESPONSE_DELAY_MSEC 5.5
+// the 1.6 is to allow for the 2 bit period delay.
+#define DALI_RESPONSE_DELAY_MSEC (5.5-1.6)
 #define DALI_RESPONSE_MAX_DELAY_MSEC 9.17
 #define DALI_RESPONSE_POST_RESPONSE_DELAY_MSEC 2.4
 

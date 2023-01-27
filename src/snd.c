@@ -76,13 +76,6 @@ void transmit(uint32_t val, uint8_t len, transmit_cb_t cb) {
     // Disable TCB0. 
     TCB0.CTRLA = 0;
     TCB0.CTRLB = 0;
-    if (len == 8) {
-        log_uint8("TX", val);
-    } else if (len == 16) {
-        log_uint16("TX", val);
-    } else {
-        log_uint24("TX", val);
-    }
     callback = cb;
     (shiftReg = val << (32-len));
     bitsLeft = len;
@@ -98,6 +91,13 @@ void transmit(uint32_t val, uint8_t len, transmit_cb_t cb) {
     TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV1_gc | TCA_SINGLE_ENABLE_bm;  // start the timer.
     tca0_cmp_handler = at_half_bit;
     TCA0.SINGLE.INTCTRL  = TCA_SINGLE_CMP0_bm; // Interrupt on CMP0 to update the period
+    // if (len == 8) {
+    //     log_uint8("TX", val);
+    // } else if (len == 16) {
+    //     log_uint16("TX", val);
+    // } else {
+    //     log_uint24("TX", val);
+    // }
 }
 
 

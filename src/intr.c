@@ -55,7 +55,7 @@ ISR(TCA0_OVF_vect) {
     // If the Handler re-instated a timer or they started transmitting (changing the mode to non NORMAL) 
     // we keep the timer going from where it was.
     // If nothing was (re)started, we stop the timer.
-    if (!timeout_handler && (TCA0.SINGLE.CTRLB && TCA_SINGLE_WGMODE_gp) == TCA_SINGLE_WGMODE_NORMAL_gc) {
+    if (!timeout_handler && (TCA0.SINGLE.CTRLB && TCA_SINGLE_WGMODE_gm) == TCA_SINGLE_WGMODE_NORMAL_gc) {
         clearTimeout();
     }
 }

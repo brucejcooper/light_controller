@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include "sched_callback.h"
 #include "incoming_commands.h"
+#include "snd.h"
+#include "console.h"
 
 /*
 from https://onlinedocs.microchip.com/pr/GUID-0CDBB4BA-5972-4F58-98B2-3F0408F3E10B-en-US-1/index.html?GUID-DA5EBBA5-6A56-4135-AF78-FB1F780EF475
@@ -116,6 +118,7 @@ typedef enum {
     CMD_DTR1 = 0x31, //	0x31	VAL		DTR1		
     CMD_DTR2 = 0x32, //	0x32	VAL		DTR2		
     CMD_SendTestframe = 0x33, //	0x33			DTR0,DTR1,DTR2		
+    // these are two-arg special commands, where the value is in the first byte.
     CMD_DirectWriteMemory = 0xC5, //   b11000101	VAL	VAL		DTR0,DTR1	Numeric	
     CMD_DTR1DTR0 = 0xC7, //   b11000111	VAL	VAL		DTR0,DTR1		
     CMD_DTR2DTR1 = 0xC9, //   b11001001	VAL	VAL		DTR1,DTR2		
@@ -148,7 +151,9 @@ typedef enum {
 
 
 static user_mode_callback_t commandObserver = NULL;
-static command_event_t currentCommand;
+static command_event_t currentCommand = {
+    .outcome = RESPONSE_IGNORE,
+};
 
 
 void notifyCallCompletion() {
@@ -196,16 +201,123 @@ static response_type_t processSpecialDeviceCommand(special_device_command_t cmd,
             break;
     }
     return RESPONSE_IGNORE;
-
 }
 
+static response_type_t processDeviceCommand(device_command_t cmd,  uint8_t *response) {
+    if (cmd <= CMD_SavePersistentVariables) {
+        // It needs to be repeated.
+        if (currentCommand.repeatCount != 2) {
+            return RESPONSE_REPEAT;
+        }
+    }
+    switch (cmd) {
+        case CMD_QueryInputDeviceError:
+            *response = 0;
+            return RESPONSE_RESPOND;
+
+        case CMD_QueryApplicationControllerError:
+            *response = 0;
+            return RESPONSE_RESPOND;
+
+        case CMD_QueryInstanceType:
+            *response = 1; // Pushbutton
+            return RESPONSE_RESPOND;
+
+
+        case CMD_StartQuiescentMode:
+            config.mode = DEVMODE_QUIESCENT;
+            return RESPONSE_NACK;
+        case CMD_StopQuiescentMode:
+            config.mode = DEVMODE_NORMAL;
+            return RESPONSE_NACK;
+    }
+    return RESPONSE_IGNORE;
+}
+
+
+static address_type_t getAddressType(uint8_t cmd[3], uint8_t *p) {
+    if ((cmd[0] & 0x01) == 0) {
+        return ADDRESS_TYPE_EVENT;
+    }
+
+    if (cmd[0] & 0xC0) {
+        return cmd[0] == 0xC1 ? ADDRESS_TYPE_SPECIAL_DEVICE_COMMAND : ADDRESS_TYPE_SPECIAL_DEVICE_COMMAND_TWOARGS;
+    }
+
+    uint8_t deviceId = cmd[0] >> 1;
+    if(deviceId == 0x7F) {
+        // Its addressed to all devices.
+    } else if (deviceId == 0x7E) {
+        // It only matches us if we don't have a short address.
+        if (config.shortAddr != 0x40) {
+            return ADDRESS_TYPE_NOT_FOR_ME;
+        }
+    } else {
+        if (config.shortAddr == deviceId) {
+            // It matches the device, so we need to check below. 
+        } else {
+            return ADDRESS_TYPE_NOT_FOR_ME;
+        }
+    }
+    
+    uint8_t flags = cmd[1] >> 5;
+    *p = cmd[1] & 0x1F; 
+
+    if (flags == 0) {
+        // return "Instance[{}]".format(p)
+        // We have a maximum of 5 instances (0..4)
+        if (*p < 5) {
+            return ADDRESS_TYPE_DEVICE_INSTANCE;
+        }
+    } else if (flags == 4) {
+        // return "InstanceGroup[{}]".format(p)
+        // return ADDRESS_TYPE_INSTANCE_GROUP;
+    } else if (flags == 6) {
+        // return "InstanceType[{}]".format(p)
+        if (*p == 1) {
+            return ADDRESS_TYPE_INSTANCE_TYPE;
+        }
+    } else if (flags == 1) {
+        // return "FeatureInstanceNumber[{}]".format(p)
+        // return ADDRESS_TYPE_FEATURE_INSTANCE_NUMBER;
+    } else if (flags == 5) {
+        // return "FeatureInstanceGroup[{}]".format(p)
+        // return ADDRESS_TYPE_FEATURE_INSTANCE_GROUP;
+    } else if (flags == 3) {
+        // return "FeatureInstanceType[{}]".format(p)
+        // if (*p == 1) {
+        //     return ADDRESS_TYPE_FEATURE_INSTANCE_TYPE;
+        // }
+    } else if (cmd[1] == 0xFD) {
+        // return "FeatureInstanceBroadcast"
+        return ADDRESS_TYPE_FEATURE_INSTANCE_BROADCAST;
+    } else if (cmd[1] == 0xFF) {
+        // return "InstanceBroadcast"
+        return ADDRESS_TYPE_INSTANCE_BROADCAST;
+    } else if (cmd[1] == 0xFC) {
+        // return "FeatureDevice"
+        return ADDRESS_TYPE_FEATURE_DEVICE;
+    } else if (cmd[1] == 0xFE) {
+        // for the device itself.
+        return ADDRESS_TYPE_DEVICE;
+    }
+    return ADDRESS_TYPE_NOT_FOR_ME;
+}
 
 static response_type_t processCommand(receive_event_received_t *evt, uint8_t *response) {
     if (evt->numBits != 24) {
         // By default, ignore all commands
+        if (evt->numBits != 16) {
+            log_uint8("Invalid numBits", evt->numBits);
+        }
         return RESPONSE_IGNORE;
     } 
 
+    uint8_t cmd[3];
+    cmd[0] = evt->data >> 16;
+    cmd[1] = evt->data >> 8;
+    cmd[2] = evt->data;
+    uint8_t instance;
 
     /*
     Device Events are specified as 
@@ -218,65 +330,43 @@ Type + Instance Number event	b10TTTTT0	b1IIIIIDD	bDDDDDDDD				b23 ==1, b22 = 0 &
     Pushbutton is Instance Type 1
     */
 
-    uint8_t cmd[3];
-    memcpy(cmd, ((uint8_t *) (&evt->data))+1, 3);
-    // uint8_t deviceId = 0;
 
+    currentCommand.addressing = getAddressType(cmd, &instance);
 
-    if (cmd[0] & 0x01) {
-        // Its a command
-        uint8_t discrim = cmd[0] >> 6;
-        switch (discrim) {
-            case 0:
-                // Device command
-                // deviceId = (cmd[0] >> 1) & 0x1F;
-
-                if (cmd[1] == 0xFE) {
-                    // Standard Device command
-                } else  {
-                    // Device Instance Command
-                }
-                break;
-            case 1:
-                break;
-            case 2:
-                break;
-            case 3: 
-                // Special Device Command (Broadcasts)
-                if (cmd[0] == 0xC1) {
-                    return processSpecialDeviceCommand(cmd[1], cmd[2], 0, response);
-                } else {
-                    switch (cmd[0]) {
-                        case CMD_DirectWriteMemory:
-                        case CMD_DTR1DTR0:
-                        case CMD_DTR2DTR1:
-                            return processSpecialDeviceCommand(cmd[0], cmd[1], cmd[2], response);
-                            break;
-                    }
-                }
-                break;
-        }
-    } else {
-        // its an event.
+    // If we're quiescent don't respond to anything other than a stop quiescent.
+    if (currentCommand.addressing == ADDRESS_TYPE_NOT_FOR_ME || (config.mode == DEVMODE_QUIESCENT && !(cmd[1] == 0xFE && cmd[2] == CMD_StopQuiescentMode))) {
+        return RESPONSE_IGNORE;
     }
-    if ((cmd[0] && 0xC1 == 0x01) && cmd[1] == 0xFE) {
-        // Its a device command.
-        switch (cmd[2]) {
-            case CMD_IdentifyDevice:
-            break;
-        }
-    }    
-    // We only respond to 24 bit commands, as we are a controller.
+
+
+    switch (currentCommand.addressing) {
+            
+        case ADDRESS_TYPE_SPECIAL_DEVICE_COMMAND:
+            return processSpecialDeviceCommand(cmd[1], cmd[2], 0, response);
+
+        case ADDRESS_TYPE_SPECIAL_DEVICE_COMMAND_TWOARGS:
+            return processSpecialDeviceCommand(cmd[0], cmd[1], cmd[2], response);
+
+        case ADDRESS_TYPE_NOT_FOR_ME:
+        case ADDRESS_TYPE_EVENT:
+            return RESPONSE_IGNORE;
+
+        default:
+            return processDeviceCommand(cmd[2], response);
+    }
+    // Default response is to ignore, but we should never get here.
     return RESPONSE_IGNORE;
 }
 
-static void transmit_response_completed() {
+static void transmit_response_completed(transmit_event_t event_type) {
     // 3. at least 6 half bit periods (2.4ms) before processing a new command
     notifyCallCompletion();
     startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_POST_RESPONSE_DELAY_MSEC), transmitNextCommandOrWaitForRead);
 }
 
 static void transmit_response() {
+    clearTimeout();
+
     transmit(currentCommand.response.mine.val, 8, transmit_response_completed);
 }
 
@@ -294,11 +384,34 @@ void setCommandObserver(user_mode_callback_t cb) {
 
 
 static void commandReceived(receive_event_t *evt) {
+    bool skipProcessing = false;
+
     switch (evt->type) {
         case RECEIVE_EVT_RECEIVED:
+            if (evt->rcv.numBits == 25) {
+                // there appears to be some weird bug where the Tridonic controller is injecting an extra 1 between the
+                // 2nd and 3rd bytes, but only if the last bit of the second byte is a 1.
+                evt->rcv.data = ((evt->rcv.data >> 1) & 0xFFFF00) | (evt->rcv.data & 0xFF);
+                evt->rcv.numBits--;
+            }
+
+
+            // Check to see if we're expecting a repeat.  at this point currentCommand is actually the last executed command.
+            currentCommand.repeatCount = 1;
+            if (currentCommand.outcome == RESPONSE_REPEAT) {
+                // Last command required a repeat - Check to see if we've received exactly the same thing again.
+                if (currentCommand.val == evt->rcv.data && currentCommand.len == evt->rcv.numBits) {
+                    currentCommand.repeatCount = 2;
+                } else {
+                    // Nope... Ignore it. 
+                    skipProcessing = true;
+                }
+            } 
+
+            currentCommand.addressing = ADDRESS_TYPE_NOT_FOR_ME;
             currentCommand.val = evt->rcv.data;
             currentCommand.len = evt->rcv.numBits;
-            currentCommand.outcome = processCommand(&(evt->rcv), &currentCommand.response.mine.val);
+            currentCommand.outcome = skipProcessing ? RESPONSE_IGNORE : processCommand(&(evt->rcv), &currentCommand.response.mine.val);
             
             switch (currentCommand.outcome) {
                 case RESPONSE_RESPOND:
@@ -312,7 +425,11 @@ static void commandReceived(receive_event_t *evt) {
                     startSingleShotTimer(MSEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_MSEC), transmitNextCommandOrWaitForRead);
                     break;
                 case RESPONSE_REPEAT:
-                    // TODO
+                    // Wait for up to maximum period (this is only 19ms, not the 100 it should be, but it'll work)
+                    notifyCallCompletion();
+                    waitForRead(MSEC_TO_TICKS(65535), commandReceived);
+                    break;
+
                 case RESPONSE_INVALID_INPUT:
                     // This isn't a valid outcome from processCommand.
                 case RESPONSE_IGNORE:
@@ -322,7 +439,10 @@ static void commandReceived(receive_event_t *evt) {
             }
             break;
         case RECEIVE_EVT_NO_DATA_RECEIVED_IN_PERIOD:
-            // THis should _NEVER_ happen because we always have 0 timeout to get here- treat it the same as below.
+            // This only ever happens in the REPEAT state when nothing is received during the timeout.
+            currentCommand.outcome = RESPONSE_INVALID_INPUT; // This disables the repeat mechanism.
+            wait_for_command();
+            break;
         case RECEIVE_EVT_INVALID_SEQUENCE:
             currentCommand.outcome = RESPONSE_INVALID_INPUT;
             currentCommand.val = 0;

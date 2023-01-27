@@ -69,16 +69,22 @@ void process_button_event(void *args) {
 void command_observer(void *args) {
     command_event_t *cmd = (command_event_t *) args;
 
-    log_cmd(cmd);
+    log_info("Observe");
 
 }
 
-
+static command_response_t command_processor(char *cmd) {
+    // log_info(cmd);
+    if (strlen(cmd) == 0) {
+        return CMD_NO_OP;
+    }
+    return CMD_FAIL;
+}
 
 
 int main(void) {
     // button_event_t buttonEvents[NUM_BUTTONS];
-    console_init();
+    console_init(command_processor);
     retrieveConfig();
     log_uint8("Short", config.shortAddr);
     log_uint8("T1", config.targets[0]);
@@ -110,7 +116,7 @@ int main(void) {
     sei();
 
     while (1) {
-        poll_calls();
+            poll_calls();
     }
     return 0;
 }

@@ -5,7 +5,7 @@
 
 
 config_t config = {
-    .shortAddr = 0x40, // This is another impossible value, but one that isn't the same as a non-initialised flash
+    .shortAddr = 1, // This is another impossible value, but one that isn't the same as a non-initialised flash
     .numButtons = 5,
     .targets = { MAKE_DALIADDR(0), MAKE_DALIADDR(1), MAKE_DALIADDR(2), MAKE_DALIADDR(3), MAKE_DALIADDR(4) }, 
     .shortPressTimer = 500/20,  // In incfrements of 20 msec.

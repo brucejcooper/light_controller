@@ -6,24 +6,31 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define USART0_BAUD_RATE(BAUD_RATE) ((float)(F_CPU * 64 / (16 * (float)BAUD_RATE)) + 0.5)
-#define OUTBUF_SZ 60
 
+#define USART0_BAUD_RATE(BAUD_RATE) ((float)(F_CPU * 64 / (16 * (float)BAUD_RATE)) + 0.5)
+#define OUTBUF_SZ 40
+#define INBUF_SZ 64
+
+
+static command_hanlder_t cmdHandler = NULL;
 
 
 typedef struct {
     char buf[OUTBUF_SZ];
     uint8_t write;
     uint8_t read;
-} circular_log_char_t;
+} circular_buffer_t;
 
-static circular_log_char_t out = {
+static circular_buffer_t out = {
     .write = 0,
     .read = 0,
 };
 
+static char in[INBUF_SZ];
+static char *inPtr = in;
 
-static void buf_write(circular_log_char_t *buf, char data) {
+
+static void buf_write(circular_buffer_t *buf, char data) {
     buf->buf[buf->write] = data;
     buf->write = (buf->write + 1) % OUTBUF_SZ;
     if (buf->write == buf->read) {
@@ -32,12 +39,12 @@ static void buf_write(circular_log_char_t *buf, char data) {
     }
 }
 
-static bool buf_read(circular_log_char_t *buf, char *data) {
+static bool buf_read(circular_buffer_t *buf, char *data) {
     if (buf->read == buf->write) {
-        // There's nothing in the log_char.
+        // There's nothing in the buffer.
         return false;
     }
-    // There _is_ something in the log_char. copy it into the pointer. 
+    // There _is_ something in the buffer. copy it into the pointer. 
     *data = buf->buf[buf->read];
     buf->read = (buf->read + 1) % OUTBUF_SZ;
     return true;
@@ -48,12 +55,11 @@ static void push_from_out_buf_to_uart() {
     char ch;
     if (buf_read(&out, &ch)) {
         USART0.TXDATAL = ch;
-        USART0.CTRLA = USART_DREIE_bm; // Enable write interrupt (if it wasn't already). 
+        USART0.CTRLA = USART_DREIE_bm | USART_RXCIE_bm; // Enable write interrupt (if it wasn't already). 
     } else {
-        USART0.CTRLA = 0; // Disable write interrupt, as we don't have anything to transmit. 
+        USART0.CTRLA = USART_RXCIE_bm; // Disable write interrupt, as we don't have anything to transmit. 
     }
 }
-
 
 void log_char(char character) {
     buf_write(&out, character);
@@ -62,22 +68,22 @@ void log_char(char character) {
     }
 }
 
-
-
 static void myPuts(char *str) {
     while (*str) {
         log_char(*str++);
     }
 }
 
+void printPrompt() {
+    *inPtr = '\0';
+    log_char('\r');
+    log_char('>');
+    log_char(' ');
+    myPuts(in);
+}
+
 static inline void outputHexNibble(uint8_t nibble) {
-    if (nibble < 10) {
-        log_char('0' + nibble);
-    } else if (nibble < 16) {
-        log_char('a' + nibble - 10);
-    } else {
-        log_char('!');
-    }
+    log_char(nibble < 0x0a ? '0' + nibble : 'a' + nibble - 10);
 }
 
 static void log_hex(uint8_t val) {
@@ -86,97 +92,125 @@ static void log_hex(uint8_t val) {
 }
 
 void log_uint24(char *str, uint32_t val) {
+    myPuts("\r\033[2K");
     myPuts(str);
     myPuts(" 0x");
-    log_hex((uint8_t) (val >> 16));
-    log_hex((uint8_t) (val >> 8));
-    log_hex((uint8_t) (val));
+    log_hex(val >> 16);
+    log_hex(val >> 8);
+    log_hex(val);
     myPuts("\r\n");
-    
+    printPrompt();
 }
 
+
 void log_uint16(char *str, uint16_t val) {
+    myPuts("\r\033[2K");
     myPuts(str);
     myPuts(" 0x");
     log_hex(val >> 8);
     log_hex(val);
     myPuts("\r\n");
-    
+    printPrompt();
 }
 
 void log_uint8(char *str, uint8_t val) {
+    myPuts("\r\033[2K");
     myPuts(str);
     myPuts(" 0x");
     log_hex(val);
     myPuts("\r\n");
-    
-}
-
-void log_val(uint32_t val, uint8_t len) {
-    for (int8_t i = len-8; i >= 0; i -= 8) {
-        log_hex(val >> i);
-    }
-}
-
-void log_cmd(command_event_t *cmd) {
-    log_char('\r');
-    log_val(cmd->val, cmd->len);
-    switch (cmd->outcome) {
-        case RESPONSE_RESPOND:
-            myPuts(" >");
-            log_char(' ');
-            log_hex(cmd->response.mine.val);
-            break;
-        case RESPONSE_NACK:
-            myPuts(" >");
-            myPuts(" (NAK)");
-            break;
-        case RESPONSE_IGNORE:
-            myPuts(" <");
-            switch (cmd->response.other.type) {
-                case RECEIVE_EVT_RECEIVED:
-                    log_char(' ');
-                    log_val(cmd->response.other.rcv.data, cmd->response.other.rcv.numBits);
-                    break;
-                case RECEIVE_EVT_NO_DATA_RECEIVED_IN_PERIOD:
-                    myPuts(" (NAK)");
-                    break;
-                case RECEIVE_EVT_INVALID_SEQUENCE:
-                    myPuts(" INV width ");
-                    log_hex(cmd->response.other.rcv.data >> 8);
-                    log_hex(cmd->response.other.rcv.data);
-                    myPuts(" pos ");
-                    log_hex(cmd->response.other.rcv.numBits);
-                    break;
-            }
-            break;
-        case RESPONSE_REPEAT:
-            myPuts(" REP");
-            break;
-        case RESPONSE_INVALID_INPUT:
-            myPuts(" INVALID");
-            break;
-    }
-    myPuts("\r\n");
-    
+    printPrompt();
 }
 
 
 void log_info(char *str) {
+    myPuts("\r\033[2K");
     myPuts(str);
     myPuts("\r\n");
-    
+    printPrompt();
 }
 
 ISR(USART0_DRE_vect) {
-    // Called when Transmit log_char is ready to receive new data. 
+    // Called when Transmit buffer is ready to receive new data. 
     push_from_out_buf_to_uart();
     USART0.STATUS = USART_DREIF_bm;
 }
 
+static void clearInputBuffer() {
+    inPtr = in;
+    *inPtr=  '\0';
+}
 
 
-void console_init() {
+void sendCommandResponse(command_response_t response) {
+    switch (response) {
+        case CMD_DEFERRED_RESPONSE:
+            // Do nothing right now, because we expect a later system to call this again with the real response.
+            return;
+        case CMD_OK: 
+            myPuts("\rOK\r\n");        
+            break;
+        case CMD_NO_OP: 
+            myPuts("\rNOOP\r\n");        
+            break;
+        case CMD_BAD_INPUT: 
+            myPuts("\rBad Input\r\n");        
+            break;
+        case CMD_FAIL: 
+            myPuts("\rFailed\r\n");        
+            break;
+        case CMD_FULL: 
+            myPuts("\rFull\r\n");        
+            break;
+        case CMD_BUSY:
+            myPuts("\rBusy\r\n");        
+            break;
+    }
+    printPrompt();
+
+}
+
+ISR(USART0_RXC_vect) {
+    // Called when Something happens to the receive buffer. The only interrupt we support is RXC, so clear it. 
+    USART0.STATUS = USART_RXCIF_bm;
+
+    char ch = USART0.RXDATAL;
+
+    if ((inPtr-in) == INBUF_SZ) {
+        inPtr = in; // Reset it back to an empty command. 
+        puts("OVERFLOW\r>");
+    }
+
+    if (ch == '\r') {
+        log_char('\r'); 
+        log_char('\n'); // add a newline to put us on the next line.
+        *inPtr = '\0';
+        
+        command_response_t response = cmdHandler ? cmdHandler(in) : CMD_NO_OP;
+        clearInputBuffer();
+        if (response != CMD_DEFERRED_RESPONSE) {
+            sendCommandResponse(response);
+        }
+        
+    } else if (ch == 8 || ch == 127) {
+        // Backspace
+        if (inPtr > in) {
+            inPtr--;
+            log_char(8);
+            log_char(' ');
+            log_char(8);
+        }
+    } else {
+        log_char(ch); // Echo it back out to the client.
+        *inPtr++ = ch;
+    }
+}
+
+
+void console_init(command_hanlder_t handler) {
+    in[0] = 0;
+    inPtr = in;
+    cmdHandler = handler;
 
     out.buf[0] = 0;
 
@@ -194,10 +228,11 @@ void console_init() {
     USART0.BAUD = USART0_BAUD_RATE(115200);
     // N81
     USART0.CTRLC = USART_CMODE_ASYNCHRONOUS_gc |  USART_PMODE_DISABLED_gc | USART_CHSIZE_8BIT_gc | USART_SBMODE_1BIT_gc;
-    USART0.CTRLA = 0; // Enable read interrupt only to start with - TX interrupt will be enabled when there is data to transmit. 
+    USART0.CTRLA = USART_RXCIE_bm; // Enable read interrupt only to start with - TX interrupt will be enabled when there is data to transmit. 
 
     // Enable TX and RX
-    USART0.CTRLB |= USART_TXEN_bm;
+    USART0.CTRLB |= USART_TXEN_bm | USART_RXEN_bm;
 
     myPuts("\r\nSystem Started\r\n");
+    printPrompt();
 }
