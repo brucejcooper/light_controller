@@ -149,6 +149,7 @@ static read_result_t dali_read(uint16_t timeout, uint8_t *out) {
     // For cleanliness' sake, we expect the bus to remain high for 2 bit periods
     while (TCA0.SINGLE.CNT < USEC_TO_TICKS(DALI_BIT_USECS*2)) {
         if ((AC0.STATUS & AC_STATE_bm) == 0) {
+            log_info("After read, bus should be held high for 2 bit periods");
             goto cleanup;
         }
     }
@@ -167,6 +168,9 @@ read_result_t send_dali_cmd(uint8_t addr, dali_gear_command_t cmd, uint8_t *out)
     if (res != READ_NAK) {
         return res;
     }
+    // Give the line a chance to recover after transmitting before we start reading
+    // There might be some propagation delay.
+    _delay_us(10);
     res =  dali_read(USEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_USEC), out);
     return res;
 }
