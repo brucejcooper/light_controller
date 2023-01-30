@@ -20,7 +20,6 @@ void log_char(char character) {
         ;
     }
     USART0.TXDATAL = character;
-    USART0.CTRLA = USART_RXCIE_bm; // Enable write interrupt (if it wasn't already). 
 }
 
 static void myPuts(char *str) {

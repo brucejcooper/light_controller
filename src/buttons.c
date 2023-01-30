@@ -18,7 +18,7 @@ struct button_t;
 
 typedef enum {
     BTN_STATE_RELEASED,
-    BTN_STATE_DEBOUNCING,
+    // BTN_STATE_DEBOUNCING,
     BTN_STATE_PRESSED,
     BTN_STATE_RELEASED_DEBOUNCING,
     BTN_STATE_LONGHELD,
@@ -29,8 +29,7 @@ typedef struct button_t {
     uint16_t next_action;
     uint8_t mask;
     button_state_t state;
-
-    cmd_queue_entry_t command;
+    uint8_t level;
 } button_t;
 
 
@@ -63,30 +62,21 @@ static inline bool is_timer_expired(button_t *btn) {
 
 static void poll_button(uint8_t index, button_t *btn) {
     uint8_t val = SWITCH_PORT.IN & btn->mask;
+    read_result_t res;
+    uint8_t dummy;
+
     switch (btn->state) {
         case BTN_STATE_RELEASED:
         if (val == 0) {
             // Its been pressed.
-            btn->state = BTN_STATE_DEBOUNCING;
-            btn->next_action = RTC.CNT + config->shortPressTimer;
+            btn->state = BTN_STATE_PRESSED;
+            btn->next_action = RTC.CNT + config->doublePressTimer;
 
-            // query what the current level is.
-            btn->command.cmd = config->targets[index] << 8 | DALI_CMD_QUERY_ACTUAL_LEVEL;
-            send_dali_cmd(&btn->command);
-        }
-        break;
-
-        case BTN_STATE_DEBOUNCING:
-        if (is_timer_expired(btn)) {
-            if (val == 0) {
-                // It remains pressed.. Halleluja
-                // TODO get target status...
-                log_uint8("Pressed", index);
-                btn->state = BTN_STATE_PRESSED;
-                btn->next_action = RTC.CNT + config->doublePressTimer;
-            } else {
-                // it may have been just noise.  Ignore it. 
-                btn->state = BTN_STATE_RELEASED;
+            // Whilst we're waiting for the button to debounce, ask the ballast its level
+            res = send_dali_cmd(config->targets[index], DALI_CMD_QUERY_ACTUAL_LEVEL, &btn->level);            
+            if (res != READ_VALUE) {
+                log_info("Did not receive response from ballast");
+                btn->level = 0; // default to off, meaning when we release the light should be turned on.
             }
         }
         break;
@@ -97,20 +87,17 @@ static void poll_button(uint8_t index, button_t *btn) {
         }
         break;
 
-
         case BTN_STATE_PRESSED:
         if (val) {
             log_uint8("Released", index);
-            // Button has been released.
-            if (btn->command.result == READ_VALUE) {
-                log_uint8("Old value ", btn->command.output);
-                btn->command.cmd = config->targets[index] << 8 | (btn->command.output ? DALI_CMD_OFF : DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL);
-                send_dali_cmd(&btn->command);
-            } else {
-                log_uint8("Invalid command status", btn->command.result);
+            log_uint8("Old value ", btn->level);
+            res = send_dali_cmd(config->targets[index], btn->level ? DALI_CMD_OFF : DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL, &dummy);
+            if (res != READ_NAK) {
+                log_info("Received unexpected response from command");
             }
         }
-        // Fall through into setting up debounce.
+
+        // Fall through into long_hold - when the timer expires it will start sending long_held messages
 
 
         case BTN_STATE_LONGHELD:

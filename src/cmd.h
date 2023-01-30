@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 typedef enum {
-    READ_QUEUED,
     READ_VALUE,
     READ_NAK,
     READ_COLLISION,
@@ -85,21 +84,10 @@ typedef enum {
 } dali_gear_command_t;
 
 
-typedef struct {
-    uint16_t cmd;
-    uint8_t output;    
-    read_result_t result;
-} cmd_queue_entry_t;
 
 
-volatile bool receive_idle;
-void read_dali(uint16_t timeout, cmd_queue_entry_t *out);
 
-volatile bool transmit_idle;
-void transmit(uint32_t val, uint8_t len);
+read_result_t send_dali_cmd(uint8_t addr, dali_gear_command_t cmd, uint8_t *out);
 
-
-void send_dali_cmd(cmd_queue_entry_t *entry);
-bool process_dali_cmd_queue();
 
 #endif

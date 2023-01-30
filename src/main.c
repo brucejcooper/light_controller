@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "console.h"
-#include "intr.h"
 #include "cmd.h"
 #include "timing.h"
 #include "buttons.h"
@@ -23,12 +22,45 @@ uint8_t currentLevels[5];
 
 
 static command_response_t command_processor(char *cmd) {
+    uint8_t lvl;
+    uint8_t op = 0xFF;
+
+
     // log_info(cmd);
     if (strlen(cmd) == 0) {
         return CMD_NO_OP;
     }
     if (strcmp(cmd, "ac") == 0) {
         log_uint8("AC status", AC0.STATUS);
+        return CMD_OK;
+    }
+
+    if (strcmp(cmd, "off") == 0) {
+        op = DALI_CMD_OFF;
+    }
+    if (strcmp(cmd, "on") == 0) {
+        op = DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL;
+    }
+    if (strcmp(cmd, "q") == 0) {
+        op = DALI_CMD_QUERY_ACTUAL_LEVEL;
+    }
+
+
+    if (op != 0xFF) {
+        read_result_t res = send_dali_cmd(config->targets[0], op, &lvl);
+        switch (res) {
+            case READ_NAK:
+                log_info("No response");
+                break;
+            case READ_COLLISION:
+                log_info("collision");
+                break;
+            case READ_VALUE:
+                log_uint8("Response", lvl);
+                break;
+
+        }
+        return CMD_OK;
     }
     return CMD_FAIL;
 }
@@ -58,8 +90,8 @@ int main(void) {
     VREF.CTRLA = VREF_DAC0REFSEL_0V55_gc;
     PORTA.PIN7CTRL  = PORT_ISC_INPUT_DISABLE_gc; // Disable Digital I/O
     AC0.MUXCTRLA = AC_MUXNEG_VREF_gc | AC_MUXPOS_PIN0_gc;
-    EVSYS.ASYNCCH0 = EVSYS_ASYNCCH0_AC0_OUT_gc;  // Async Channel 0 is sourced from AC0
-    EVSYS.ASYNCUSER0 = EVSYS_ASYNCUSER0_ASYNCCH0_gc; // ASYNCHCH0 destination is 0 (TCB0)
+    // EVSYS.ASYNCCH0 = EVSYS_ASYNCCH0_AC0_OUT_gc;  // Async Channel 0 is sourced from AC0
+    // EVSYS.ASYNCUSER0 = EVSYS_ASYNCUSER0_ASYNCCH0_gc; // ASYNCHCH0 destination is 0 (TCB0)
 
     AC0.CTRLA = AC_HYSMODE_OFF_gc | AC_ENABLE_bm; // Enable the AC.
 
@@ -80,7 +112,8 @@ int main(void) {
     sei();
 
     while (1) {
-        bool all_idle = poll_buttons() & process_dali_cmd_queue();
+        bool all_idle = poll_buttons();
+        // log_uint8("Level", AC0.STATUS);
 
         // if (all_idle) {
         //     log_info("Sleeping");

@@ -12,7 +12,7 @@
 #define TICKS_TO_USECS(u)   (uint16_t) ((u)/(F_CPU/1000000.0))
 
 // Reponse delay is 22 half bits, or 9.17 msec
-#define DALI_RESPONSE_MAX_DELAY_MSEC (22 * DALI_HALF_BIT_USECS)
+#define DALI_RESPONSE_MAX_DELAY_USEC (22 * DALI_HALF_BIT_USECS)
 
 // We allow 45 uSec variation in timing (371 - 461)
 static inline bool isHalfBit(uint16_t v) {
