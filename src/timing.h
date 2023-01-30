@@ -11,10 +11,8 @@
 #define MSEC_TO_TICKS(u)    USEC_TO_TICKS((u)*1000)
 #define TICKS_TO_USECS(u)   (uint16_t) ((u)/(F_CPU/1000000.0))
 
-// the 1.6 is to allow for the 2 bit period delay.
-#define DALI_RESPONSE_DELAY_MSEC (5.5-1.6)
-#define DALI_RESPONSE_MAX_DELAY_MSEC 9.17
-#define DALI_RESPONSE_POST_RESPONSE_DELAY_MSEC 2.4
+// Reponse delay is 22 half bits, or 9.17 msec
+#define DALI_RESPONSE_MAX_DELAY_MSEC (22 * DALI_HALF_BIT_USECS)
 
 // We allow 45 uSec variation in timing (371 - 461)
 static inline bool isHalfBit(uint16_t v) {

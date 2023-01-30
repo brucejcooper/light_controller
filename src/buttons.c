@@ -8,26 +8,29 @@
 #include <string.h>
 #include "buttons.h"
 #include "console.h"
-#include "timers.h"
-#include "state_machine.h"
-#include "sched_callback.h"
+#include "config.h"
 #include <stdlib.h>
+#include "cmd.h"
 
 // Switch is on PB2
 #define SWITCH_PORT PORTA
-
-#define DEBOUNCE_TICKS 20
-#define LONGPRESS_START_TICKS 512
-#define LONGPRESS_REPEAT_TICKS 256
-
 struct button_t;
 
+typedef enum {
+    BTN_STATE_RELEASED,
+    BTN_STATE_DEBOUNCING,
+    BTN_STATE_PRESSED,
+    BTN_STATE_RELEASED_DEBOUNCING,
+    BTN_STATE_LONGHELD,
+} button_state_t; 
 
 typedef struct button_t {
-    uint8_t index;
-    uint8_t mask;
     uint8_t click_count;
-    timer_t timer;
+    uint16_t next_action;
+    uint8_t mask;
+    button_state_t state;
+
+    cmd_queue_entry_t command;
 } button_t;
 
 
@@ -36,156 +39,110 @@ typedef struct button_t {
  * if positive, this is the number of ticks until the next action for that button
  * if negative, then timer is disabled for that button.
  */
-static button_t buttons[NUM_BUTTONS];
-static user_mode_callback_t button_callback = NULL;
+static button_t buttons[NUM_BUTTONS] = {
+    {
+        .state = BTN_STATE_RELEASED,
+        .mask = PIN6_bm,
+    }
+};
 
+void buttons_init() {
+    SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm;
 
-
-static void button_debounced(void *ctx);
-static void button_released_debounce(void *ctx);
-
-
-static void pushEvent(button_event_type_t type, uint8_t idx) {
-    button_event_t *evt = malloc(sizeof(button_event_t));
-    if (evt) {
-        evt->type = type;
-        evt->index = idx;
-        schedule_call(button_callback, evt);
+    for (int i = 0; i < NUM_BUTTONS; i++) {
+        SWITCH_PORT.DIRCLR = buttons[i].mask; // Set all buttons as inputs.
+        buttons[i].state = BTN_STATE_RELEASED;  // Start in released state -It will immediately go into button press if it is already held down.
     }
 }
 
-
-static void button_pressed(button_t *btn) {
-    // log_info("Pressed");
-    // Upon press, we want to know the current state of the lamp - Ask it. 
-    pushEvent(EVENT_PRESSED, btn->index);
-
-    // Wait for the debounce period before we do anything else (we'll check level then)
-    startTimer(DEBOUNCE_TICKS, button_debounced, btn, &(btn->timer));
-}
-
-static void button_released(button_t *btn) {
-    // Its a release
-    // cancel any existing timers for this button.
-    cancelTimer(&btn->timer);
-    pushEvent(EVENT_RELEASED, btn->index);
-
-    // Wait for the debounce period before we do anything else (we'll check level then)
-    startTimer(DEBOUNCE_TICKS, button_released_debounce, btn, &(btn->timer));    
+static inline bool is_timer_expired(button_t *btn) {
+    return ((int16_t) (RTC.CNT - (btn->next_action))) > 0;
 }
 
 
-ISR(PORTA_PORT_vect)
-{
-    for (int pin = 0; pin < NUM_BUTTONS; pin++) {
-        button_t *btn = &buttons[pin];
 
-        if(SWITCH_PORT.INTFLAGS & btn->mask) {
-            uint8_t evt = SWITCH_PORT.PIN6CTRL & PORT_ISC_gm;
-            // Disable futher interrupts (for now);
-            SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm;
-            switch (evt) {
-                case PORT_ISC_LEVEL_gc: 
-                    button_pressed(btn);
-                    break;
-                case PORT_ISC_RISING_gc:
-                    button_released(btn);
-                    break;
-                default:
-                    log_uint8("Illegal Port interrupt", SWITCH_PORT.PIN6CTRL & PORT_ISC_gm);
-                    break;
+static void poll_button(uint8_t index, button_t *btn) {
+    uint8_t val = SWITCH_PORT.IN & btn->mask;
+    switch (btn->state) {
+        case BTN_STATE_RELEASED:
+        if (val == 0) {
+            // Its been pressed.
+            btn->state = BTN_STATE_DEBOUNCING;
+            btn->next_action = RTC.CNT + config->shortPressTimer;
+
+            // query what the current level is.
+            btn->command.cmd = config->targets[index] << 8 | DALI_CMD_QUERY_ACTUAL_LEVEL;
+            send_dali_cmd(&btn->command);
+        }
+        break;
+
+        case BTN_STATE_DEBOUNCING:
+        if (is_timer_expired(btn)) {
+            if (val == 0) {
+                // It remains pressed.. Halleluja
+                // TODO get target status...
+                log_uint8("Pressed", index);
+                btn->state = BTN_STATE_PRESSED;
+                btn->next_action = RTC.CNT + config->doublePressTimer;
+            } else {
+                // it may have been just noise.  Ignore it. 
+                btn->state = BTN_STATE_RELEASED;
             }
-            // Clear the interrupt flag.
-            SWITCH_PORT.INTFLAGS = btn->mask;          
+        }
+        break;
+
+        case BTN_STATE_RELEASED_DEBOUNCING:
+        if (is_timer_expired(btn)) {
+            btn->state = BTN_STATE_RELEASED;
+        }
+        break;
+
+
+        case BTN_STATE_PRESSED:
+        if (val) {
+            log_uint8("Released", index);
+            // Button has been released.
+            if (btn->command.result == READ_VALUE) {
+                log_uint8("Old value ", btn->command.output);
+                btn->command.cmd = config->targets[index] << 8 | (btn->command.output ? DALI_CMD_OFF : DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL);
+                send_dali_cmd(&btn->command);
+            } else {
+                log_uint8("Invalid command status", btn->command.result);
+            }
+        }
+        // Fall through into setting up debounce.
+
+
+        case BTN_STATE_LONGHELD:
+        if (val) {
+            // It was released.
+            btn->state = BTN_STATE_RELEASED_DEBOUNCING;
+            btn->next_action = RTC.CNT + config->repeatTimer;
+
+        } else if (is_timer_expired(btn)) {
+            // Its been held long enough now
+            btn->next_action = RTC.CNT + config->repeatTimer; 
+            if (btn->state == BTN_STATE_PRESSED) {
+                log_uint8("Long Held", index);
+                btn->state = BTN_STATE_LONGHELD;
+            } else {
+                log_uint8("Repeat", index);
+            }
+        }
+        break;
+    }
+}
+
+
+bool poll_buttons() {
+    bool all_idle = true;
+
+    for (uint8_t b = 0; b < NUM_BUTTONS; b++) {
+        poll_button(b, &buttons[b]);
+        // If any button is doing anything other than in the released state, then we stay awake.
+        if (buttons[b].state != BTN_STATE_RELEASED) {
+            all_idle = false;
         }
     }
-}
-
-
-
-static void wait_for_press(button_t *btn) {
-    // Enable interrupt on low value
-    SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
-    // clear any existing interrupt
-    SWITCH_PORT.INTFLAGS = btn->mask;
-}
-
-static void wait_for_release(button_t *btn) {
-    // Enable interrupt on low value
-    SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_RISING_gc;
-    // clear any existing interrupt
-    SWITCH_PORT.INTFLAGS = btn->mask;
-}
-
-void buttons_init(user_mode_callback_t cb) {
-    // combine all the button masks into one mask.
-    uint8_t mask = 0;
-    buttons[0].mask = PIN6_bm;
-    buttons[0].index = 1;
-    // buttons[1].mask = PIN3_bm;
-    // buttons[2].mask = PIN4_bm;
-    // buttons[3].mask = PIN5_bm;
-    // buttons[4].mask = PIN6_bm;
-    for (int i = 0; i < NUM_BUTTONS; i++) {
-        mask |= buttons[i].mask;
-    }
-
-    SWITCH_PORT.DIRCLR = mask; // Set all buttons as inputs.
-    // Read initial values.
-    for (int i = 0; i < NUM_BUTTONS; i++) {
-        buttons[i].click_count = 0;
-
-        if (SWITCH_PORT.IN & buttons[i].mask) {
-            wait_for_press(&buttons[i]);
-        } else {
-            wait_for_release(&buttons[i]);
-        }
-    }
-    button_callback = cb;
-}
-
-
-static void long_press_repeated(void *ctx) {
-    // TODO emit event
-    log_info("lp repeat");
-
-    button_t *btn = (button_t *) ctx;
-    startTimer(LONGPRESS_REPEAT_TICKS, long_press_repeated, btn, &(btn->timer)); // start repeating after half a second.    
-}
-
-
-static void button_long_pressed(void *ctx) {
-    log_info("long_press");
-    // TODO emit event
-    button_t *btn = (button_t *) ctx;
-    startTimer(LONGPRESS_REPEAT_TICKS, long_press_repeated, btn, &(btn->timer)); // start repeating after half a second.
-}
-
-
-static void button_debounced(void *ctx) {
-    button_t *btn = (button_t *) ctx;
-
-    if(SWITCH_PORT.IN & btn->mask) {
-        // Released during debounce.
-        // TODO Emit button released event.
-        button_released(btn);
-    } else {
-        wait_for_release(btn);
-        // Change Pin ISR to respond to releases
-        // Still pressed, start waiting for long presses or release.
-        startTimer(LONGPRESS_START_TICKS, button_long_pressed, btn, &(btn->timer)); // start repeating after half a second.
-    }
-}
-
-
-static void button_released_debounce(void *ctx) {
-    button_t *btn = (button_t *) ctx;
-
-    if(SWITCH_PORT.IN & btn->mask) {
-        // It remains released.
-        wait_for_press(btn);
-    } else {
-        // It was re-pressed and remains so - treat it as a new press.
-        button_pressed(btn);
-    }
+    return all_idle;
 }

@@ -31,6 +31,18 @@ erase:
 flash:
 	pymcuprog -t uart -u $(PORT) -d $(DEVICE) write -f build/$(FILENAME).hex --verify
 
+get_config: 
+	pymcuprog -t uart -u ${PORT} -d $(DEVICE) -m user_row read
+
+configure:
+	pymcuprog -t uart -u ${PORT} -d $(DEVICE) -m user_row write -l 0x01    0x03 0x05 0x07 0x09 0x0b   0xa3 0x00  0x00 0x60    0x00 0x10
+
+reset:
+	pymcuprog -t uart -u ${PORT} -d $(DEVICE) reset
+
+pulse:
+	./send_click.py
+
 clean:
 	rm -rf build/
 	rm -f main.elf

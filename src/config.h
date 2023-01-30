@@ -2,50 +2,18 @@
 #define __CONFIG_H__
 #include <stdbool.h>
 #include <stdint.h>
-
-
-#define MAKE_DALIADDR(x) (((x) << 1) | 0x01)
-#define MAKE_DALI_GROUP_ADDR(x) (((x) << 1) | 0x81)
-
-
-typedef union {
-    uint8_t bytes[3];
-    uint32_t value;
-} dtr_t;
-
-typedef enum {
-    DEVMODE_NORMAL,
-    DEVMODE_PROVISIONING,
-    DEVMODE_WRITING,
-    DEVMODE_QUIESCENT,
-} device_mode_t;
+#include <avr/eeprom.h>
 
 typedef struct {
-    uint8_t shortAddr;  
     uint8_t numButtons;
     uint8_t targets[5]; // The targets
 
-    uint8_t shortPressTimer; // in 20 ms increments
-    uint8_t doublePressTimer; 
-    uint8_t repeatTimer;  
-    uint8_t stuckTimer; // In seconds.
-
-    // --- Persistence Threshold -- Values after this one will be reset to defaults after reboot or on call to retrieve config.
-    device_mode_t mode;
-    uint8_t randomAddr[3];
-    uint8_t searchAddr[3];
-    dtr_t dtr;
-    void *dataPtr;
+    uint16_t shortPressTimer; // in ms
+    uint16_t doublePressTimer; 
+    uint16_t repeatTimer;  
 } config_t;
 
-#define PERSISTENT_CONFIG_SIZE 11
 
-extern config_t config;
+#define config ((config_t *) &USERROW)
 
-
-void persistConfig();
-void retrieveConfig();
-void initialiseRNG();
-void randomiseSearchAddr();
-int8_t searchAddressCompare();
 #endif

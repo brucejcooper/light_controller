@@ -25,6 +25,7 @@ void log_uint16(char *str, uint16_t val);
 void log_uint8(char *str, uint8_t val);
 void log_info(char *str);
 void log_char(char character);
+void log_hex(uint8_t val);
 
 void sendCommandResponse(command_response_t response);
 void printPrompt();

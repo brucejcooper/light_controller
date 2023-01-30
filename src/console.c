@@ -8,64 +8,19 @@
 
 
 #define USART0_BAUD_RATE(BAUD_RATE) ((float)(F_CPU * 64 / (16 * (float)BAUD_RATE)) + 0.5)
-#define OUTBUF_SZ 40
 #define INBUF_SZ 64
 
 
 static command_hanlder_t cmdHandler = NULL;
-
-
-typedef struct {
-    char buf[OUTBUF_SZ];
-    uint8_t write;
-    uint8_t read;
-} circular_buffer_t;
-
-static circular_buffer_t out = {
-    .write = 0,
-    .read = 0,
-};
-
 static char in[INBUF_SZ];
 static char *inPtr = in;
 
-
-static void buf_write(circular_buffer_t *buf, char data) {
-    buf->buf[buf->write] = data;
-    buf->write = (buf->write + 1) % OUTBUF_SZ;
-    if (buf->write == buf->read) {
-        // Overflow. We deal with this by discarding the oldest readable value.
-        buf->read = (buf->read + 1) % OUTBUF_SZ;
-    }
-}
-
-static bool buf_read(circular_buffer_t *buf, char *data) {
-    if (buf->read == buf->write) {
-        // There's nothing in the buffer.
-        return false;
-    }
-    // There _is_ something in the buffer. copy it into the pointer. 
-    *data = buf->buf[buf->read];
-    buf->read = (buf->read + 1) % OUTBUF_SZ;
-    return true;
-}
-
-
-static void push_from_out_buf_to_uart() {
-    char ch;
-    if (buf_read(&out, &ch)) {
-        USART0.TXDATAL = ch;
-        USART0.CTRLA = USART_DREIE_bm | USART_RXCIE_bm; // Enable write interrupt (if it wasn't already). 
-    } else {
-        USART0.CTRLA = USART_RXCIE_bm; // Disable write interrupt, as we don't have anything to transmit. 
-    }
-}
-
 void log_char(char character) {
-    buf_write(&out, character);
-    if (USART0.STATUS & USART_DREIF_bm) {
-        push_from_out_buf_to_uart();
+    while (!(USART0.STATUS & USART_DREIF_bm)) {
+        ;
     }
+    USART0.TXDATAL = character;
+    USART0.CTRLA = USART_RXCIE_bm; // Enable write interrupt (if it wasn't already). 
 }
 
 static void myPuts(char *str) {
@@ -86,7 +41,7 @@ static inline void outputHexNibble(uint8_t nibble) {
     log_char(nibble < 0x0a ? '0' + nibble : 'a' + nibble - 10);
 }
 
-static void log_hex(uint8_t val) {
+void log_hex(uint8_t val) {
     outputHexNibble(val >> 4);
     outputHexNibble(val & 0x0F);
 }
@@ -128,12 +83,6 @@ void log_info(char *str) {
     myPuts(str);
     myPuts("\r\n");
     printPrompt();
-}
-
-ISR(USART0_DRE_vect) {
-    // Called when Transmit buffer is ready to receive new data. 
-    push_from_out_buf_to_uart();
-    USART0.STATUS = USART_DREIF_bm;
 }
 
 static void clearInputBuffer() {
@@ -212,7 +161,6 @@ void console_init(command_hanlder_t handler) {
     inPtr = in;
     cmdHandler = handler;
 
-    out.buf[0] = 0;
 
     // Use alternate pins, so we don't clash with TCA0
     PORTMUX.CTRLB |= PORTMUX_USART0_bm;

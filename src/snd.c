@@ -12,16 +12,16 @@
 #include "console.h"
 #include "intr.h"
 #include "timing.h"
-#include "snd.h"
+#include "cmd.h"
 
 
-static transmit_cb_t callback;
 static uint32_t shiftReg;
 static uint8_t bitsLeft;
 static uint8_t lastBit;
 static void at_half_bit();
 
 static isr_handler_t tca0_cmp_handler = NULL;
+volatile bool transmit_idle = true;
 
 
 
@@ -36,7 +36,7 @@ static void transmitCompleted() {
     TCA0.SINGLE.CTRLB = 0; 
     TCA0.SINGLE.INTCTRL = 0; // Disable any interrupts
 
-    callback(TRANSMIT_EVT_COMPLETED);
+    transmit_idle = true;
 }
 
 static void at_half_bit() {
@@ -69,17 +69,16 @@ static void at_half_bit() {
 }
 
 
-
-
-void transmit(uint32_t val, uint8_t len, transmit_cb_t cb) {
+void transmit(uint32_t val, uint8_t len) {
+    log_uint24("Transmitting", val);
     TCA0.SINGLE.CTRLA = 0;     // Disable timer if it was already running
     // Disable TCB0. 
     TCB0.CTRLA = 0;
     TCB0.CTRLB = 0;
-    callback = cb;
     (shiftReg = val << (32-len));
     bitsLeft = len;
     lastBit = 1;
+    transmit_idle = false;
 
 
     TCA0.SINGLE.CTRLESET = TCA_SINGLE_CMD_RESET_gc; // Reset the timer - This way it doesn't matter how many toggles there have been. 
@@ -98,6 +97,8 @@ void transmit(uint32_t val, uint8_t len, transmit_cb_t cb) {
     // } else {
     //     log_uint24("TX", val);
     // }
+
+    // Caller should poll transmit_idle to determine when its done. 
 }
 
 
