@@ -131,11 +131,10 @@ static read_result_t dali_read(uint16_t timeout, uint8_t *out) {
                 break;
             case PULSE_FULL:
                 // Its a bit flip
-                last = last ? 0 : 1;
+                last = !last;
                 break;
             default:
                 goto cleanup;
-                break;
         }
         val = val << 1 | last;
     }
@@ -146,10 +145,9 @@ static read_result_t dali_read(uint16_t timeout, uint8_t *out) {
         }
     }
     
-    // For cleanliness' sake, we expect the bus to remain high for 2 bit periods
+    // For cleanliness' sake, we expect the bus to remain high for 2 bit periods after end
     while (TCA0.SINGLE.CNT < USEC_TO_TICKS(DALI_BIT_USECS*2)) {
         if ((AC0.STATUS & AC_STATE_bm) == 0) {
-            log_info("After read, bus should be held high for 2 bit periods");
             goto cleanup;
         }
     }

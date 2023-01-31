@@ -109,16 +109,18 @@ int main(void) {
 
 
     buttons_init();
+
     sei();
 
     while (1) {
         bool all_idle = poll_buttons();
-        // log_uint8("Level", AC0.STATUS);
 
-        // if (all_idle) {
-        //     log_info("Sleeping");
-        //     sleep_mode();
-        // }
+        if (all_idle) {
+            log_info("Sleeping");
+            // Clear any interrupts that may have caused the device to wake up
+            PORTA.INTFLAGS = PIN6_bm;
+            sleep_mode();
+        }
     }
     return 0;
 }

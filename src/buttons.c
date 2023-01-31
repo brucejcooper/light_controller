@@ -46,7 +46,7 @@ static button_t buttons[NUM_BUTTONS] = {
 };
 
 void buttons_init() {
-    SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm;
+    SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
 
     for (int i = 0; i < NUM_BUTTONS; i++) {
         SWITCH_PORT.DIRCLR = buttons[i].mask; // Set all buttons as inputs.
