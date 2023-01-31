@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "console.h"
-#include "timing.h"
+#include "config.h"
 #include "cmd.h"
 
 typedef enum {
@@ -170,5 +170,12 @@ read_result_t send_dali_cmd(uint8_t addr, dali_gear_command_t cmd, uint8_t *out)
     // There might be some propagation delay.
     _delay_us(10);
     res =  dali_read(USEC_TO_TICKS(DALI_RESPONSE_MAX_DELAY_USEC), out);
+
+    // if a response was received, we can't transmit again for another 22 half bits (9.17ms)
+    // Technically, we could set up a timer to go off after this time, but there's not really
+    // much we can do during this time anyway, so we just delay here. 
+    if (res == READ_VALUE) {
+
+    }
     return res;
 }

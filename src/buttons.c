@@ -46,6 +46,7 @@ static button_t buttons[NUM_BUTTONS] = {
 };
 
 void buttons_init() {
+    // Set up pins with pullup, and interrupt on 
     SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
 
     for (int i = 0; i < NUM_BUTTONS; i++) {
