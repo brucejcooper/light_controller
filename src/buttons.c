@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
+#include <avr/wdt.h>
 #include <util/atomic.h>
 #include <stdbool.h>
 #include <string.h>
@@ -20,8 +21,9 @@ struct button_t;
 typedef enum {
     BTN_STATE_RELEASED,
     BTN_STATE_PRESSED,
-    BTN_STATE_RELEASED_DEBOUNCING,
     BTN_STATE_LONGHELD,
+    BTN_STATE_RELEASE_DEBOUNCE,
+    BTN_STATE_RELEASED_WAIT_FOR_REPRESS,
 } button_state_t; 
 
 
@@ -29,14 +31,19 @@ typedef void (*state_handler_t)(struct button_t *btn, const uint8_t button_level
 typedef struct button_t {
     // Index of the button.
     uint8_t index;
-    // Counts how many times the button has been clicked to switch fade direction
-    uint8_t click_count;
+
+    // Dimming Direction.
+    dali_gear_command_t direction;
+
     // RTC timeout for next 
     uint16_t timeout;
+
     // Bit mask for the pin
     uint8_t mask;
+
     // The state handler.
     button_state_t state;
+
     // The last read light level for this target.
     uint8_t light_level;
 } button_t;
@@ -44,28 +51,56 @@ typedef struct button_t {
 static void released(button_t *btn, const uint8_t button_level);
 static void pressed(button_t *btn, const uint8_t button_level);
 static void long_pressed(button_t *btn, const uint8_t button_level);
-static void released_debouncing(button_t *btn, const uint8_t button_level);
+static void wait_for_repress(button_t *btn, const uint8_t button_level);
 static void long_pressed(button_t *btn, const uint8_t button_level);
 
-static const button_t buttons[NUM_BUTTONS] = {
+static button_t buttons[NUM_BUTTONS] = {
     {
+        .index = 0,
         .state = BTN_STATE_RELEASED,
         .mask = PIN6_bm,
         .light_level = 0,
-        .click_count = 0,
+        .direction = DALI_CMD_DOWN,
         .timeout = 0,
     }
 };
 
+
 void buttons_init() {
     // Set up pins with pullup, and interrupt on 
     SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
+
     // Set all the pins as inputs.
     SWITCH_PORT.DIRCLR = PIN6_bm;
 }
 
 static inline bool is_timer_expired(button_t *btn) {
     return ((int16_t) (RTC.CNT - btn->timeout)) >= 0;
+}
+
+static void send_dali_cmd_no_response(button_t *btn, dali_gear_command_t cmd) {
+    uint8_t dummy;
+    read_result_t res = send_dali_cmd(config->targets[btn->index], cmd, &dummy);
+    if (res != READ_NAK) {
+        log_uint8("Expected No repsonse", res);
+    }
+}
+
+static uint8_t send_dali_query(button_t *btn, dali_gear_command_t cmd, uint8_t defaultVal) {
+    uint8_t val;
+    read_result_t res = send_dali_cmd(config->targets[btn->index], cmd, &val);
+    if (res != READ_VALUE) {
+        log_uint8("Expected response", res);
+        return defaultVal;
+    }
+    return val;    
+}
+
+
+
+
+static inline void execute_dim(button_t *btn) {
+    send_dali_cmd_no_response(btn,  btn->direction);
 }
 
 
@@ -76,49 +111,66 @@ static void released(button_t *btn, const uint8_t button_level) {
         btn->timeout = RTC.CNT + config->doublePressTimer;
 
         // Whilst we're waiting for the button to debounce, ask the ballast its current level.
-        // Because this takes some time (a little over 20 ms, post response delay), there is no 
+        // Because this takes some time (a little over 20 ms, including post response delay), there is no 
         // need for an additional debounce timer.
-        read_result_t res = send_dali_cmd(config->targets[btn->index], DALI_CMD_QUERY_ACTUAL_LEVEL, &btn->light_level);            
-        if (res != READ_VALUE) {
-            log_info("Did not receive response from ballast");
-            btn->light_level = 0; // default to off, meaning when we release the light should be turned on.
-        }
+        btn->light_level = send_dali_query(btn, DALI_CMD_QUERY_ACTUAL_LEVEL, 0);     
+        log_uint8("Pressed. current level", btn->light_level);
     }
 }
 
 static void pressed(button_t *btn, const uint8_t button_level) {
-    uint8_t dummy;
     if (button_level) {
         // Its been released - send out either an off or an on command, depending ont he current level
-        log_uint8("Released", btn->index);
-        log_uint8("Old value ", btn->light_level);
-        read_result_t res = send_dali_cmd(config->targets[btn->index], btn->light_level ? DALI_CMD_OFF : DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL, &dummy);
-        if (res != READ_NAK) {
-            log_info("Received unexpected response from command");
-        }
+        log_info(btn->light_level ? "off" : "on");
+        send_dali_cmd_no_response(btn, btn->light_level ? DALI_CMD_OFF : DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL);
         // The command will have taken a little over 10 milliseconds.  This is effectively our debounce period.
         btn->state = BTN_STATE_RELEASED;
     } else if (is_timer_expired(btn)) {
-        log_info("Long pressed");
         btn->state = BTN_STATE_LONGHELD;
-        btn->timeout = RTC.CNT + config->repeatTimer; 
+        btn->timeout = RTC.CNT + config->repeatTimer;
+        if (btn->light_level == 0) {
+            // We can't dim or brighten if we're not on, so turn it on, and find out what the current level is.
+            send_dali_cmd_no_response(btn, DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL);
+            btn->light_level = send_dali_query(btn, DALI_CMD_QUERY_ACTUAL_LEVEL, 0);     
+        }
+        // TODO is there a way this can be hidden something else?  Perhaps during the long press delay?
+        uint8_t minLevel = send_dali_query(btn, DALI_CMD_QUERY_MIN_LEVEL, 0);
+        // If we're already at minimum, start out brightening, otherwise start dimming
+        btn->direction = btn->light_level <= minLevel ? DALI_CMD_UP : DALI_CMD_DOWN;
+        execute_dim(btn);
     }
 }
 
 static void long_pressed(button_t *btn, const uint8_t button_level) {
     if (button_level) {
+        log_uint8("Released after long hold", btn->index);
         // It was released. Do some debouncing.
-        btn->state = BTN_STATE_RELEASED_DEBOUNCING;
-        btn->timeout = RTC.CNT + MS_TO_RTC_TICKS(10);
+        btn->state = BTN_STATE_RELEASE_DEBOUNCE;
+        btn->timeout = RTC.CNT + MS_TO_RTC_TICKS(10); 
     } else if (is_timer_expired(btn)) {
         // Its been held long enough now for a repeat.
         btn->timeout = RTC.CNT + config->repeatTimer; 
-        log_uint8("Repeat", btn->index);
+        execute_dim(btn);
     }
 }
 
-static void released_debouncing(button_t *btn, const uint8_t button_level) {
+static void release_debounce(button_t *btn, const uint8_t button_level) {
     if (is_timer_expired(btn)) {
+        btn->state = BTN_STATE_RELEASED_WAIT_FOR_REPRESS;
+        btn->timeout = RTC.CNT + config->repeatTimer;
+    }
+}
+
+static void wait_for_repress(button_t *btn, const uint8_t button_level) {
+    if (!button_level) {
+        log_info("Repress");
+        // Its a repress (Kinda like a double click, but after a long hold)
+        btn->direction = btn->direction == DALI_CMD_UP ? DALI_CMD_DOWN : DALI_CMD_UP;
+        btn->timeout = RTC.CNT + config->repeatTimer; 
+        btn->state = BTN_STATE_LONGHELD;
+        execute_dim(btn);
+    } else if (is_timer_expired(btn)) {
+        log_info("Released");
         btn->state = BTN_STATE_RELEASED;
     }
 }
@@ -127,26 +179,29 @@ static void released_debouncing(button_t *btn, const uint8_t button_level) {
 bool poll_buttons() {
     bool all_idle = true;
 
-    for  (button_t *btn = (button_t *) buttons; btn < (buttons+NUM_BUTTONS); btn++) {
+    for  (button_t *btn = buttons; btn < (buttons+NUM_BUTTONS); btn++) {
         uint8_t val = SWITCH_PORT.IN & btn->mask;
-
         switch (btn->state) {
             case BTN_STATE_RELEASED:
-            released(btn, val);
-            break;
+                released(btn, val);
+                break;
             case BTN_STATE_PRESSED:
-            pressed(btn, val);
-            break;
+                pressed(btn, val);
+                break;
             case BTN_STATE_LONGHELD:
-            long_pressed(btn, val);
-            break;
-            case BTN_STATE_RELEASED_DEBOUNCING:
-            released_debouncing(btn, val);
-            break;
+                long_pressed(btn, val);
+                break;
+            case BTN_STATE_RELEASE_DEBOUNCE:
+                release_debounce(btn, val);
+                break;
+            case BTN_STATE_RELEASED_WAIT_FOR_REPRESS:
+                wait_for_repress(btn, val);
+                break;
         }
         if (btn->state != BTN_STATE_RELEASED) {
             all_idle = false;
         }
+        wdt_reset();
     }
     return all_idle;
 }

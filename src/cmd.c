@@ -175,7 +175,7 @@ read_result_t send_dali_cmd(uint8_t addr, dali_gear_command_t cmd, uint8_t *out)
     // Technically, we could set up a timer to go off after this time, but there's not really
     // much we can do during this time anyway, so we just delay here. 
     if (res == READ_VALUE) {
-
+        _delay_us(DALI_RESPONSE_MAX_DELAY_USEC);
     }
     return res;
 }

@@ -41,7 +41,11 @@ reset:
 	pymcuprog -t uart -u ${PORT} -d $(DEVICE) reset
 
 pulse:
-	./send_click.py
+	./send_click.py 100
+
+dim:
+	./send_click.py 3000
+
 
 clean:
 	rm -rf build/

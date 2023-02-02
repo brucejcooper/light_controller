@@ -14,5 +14,4 @@ void log_info(char *str);
 void log_char(char character);
 void log_hex(uint8_t val);
 
-
 #endif
