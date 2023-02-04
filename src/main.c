@@ -37,11 +37,10 @@ int main(void) {
     // set_wdt(NORMAL_WDT); 
     set_wdt(WDT_PERIOD_8KCLK_gc);
     console_init();
-    log_uint8("RSTFR", RSTCTRL_RSTFR);
-    log_uint16("Long press timeout", config->doublePressTimer);
-    log_uint16("Repeat", config->repeatTimer);
+    log_uint8("Reset Reason", RSTCTRL_RSTFR);
     RSTCTRL_RSTFR = 0XFF;
-    _delay_ms(1);
+    log_uint16("Long press timeout", config->doublePressTimer);
+    log_uint16("Dim repeat timer", config->repeatTimer);
 
     // Set the DALI output (PB2) as an output, initially set to zero out (not shorted)
     PORTB.OUTCLR = PORT_INT2_bm;
@@ -50,7 +49,7 @@ int main(void) {
     // Set up the DALI input (PA7) using the Analog Comparator with reference of 0.55V
     // This makes it trigger sooner than if we were doing digital I/O, as it has a much lower threshold
     VREF.CTRLA = VREF_DAC0REFSEL_0V55_gc;
-    PORTA.PIN7CTRL  = PORT_ISC_INPUT_DISABLE_gc; // Disable Digital I/O
+    PORTA.PIN7CTRL  = PORT_ISC_INPUT_DISABLE_gc; // Disable Digital I/O, so that it doesn't mess with the impedence
     AC0.MUXCTRLA = AC_MUXNEG_VREF_gc | AC_MUXPOS_PIN0_gc;
     AC0.CTRLA = AC_HYSMODE_OFF_gc | AC_ENABLE_bm; // Enable the AC.    
 
@@ -73,12 +72,6 @@ int main(void) {
         if (poll_buttons()) {            
             log_uint8("S", ++loop);
             console_flush();
-            // Clear any interrupts that may cause the device to wake up immediately
-
-            // RTC.PITINTFLAGS = RTC_PI_bm;
-            // Change the WDT to its maximum value (8 secs)
-            // set_wdt(WDT_PERIOD_8KCLK_gc);
-            _delay_us(500); // The UART seems to need more time, even though we flushed it.
             // Enable interrupts to wake us back up
             PORTA.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
             RTC.PITINTCTRL = RTC_PI_bm;
@@ -86,7 +79,6 @@ int main(void) {
             // Disable the interrupts again, as everything is syncrhonous.
             RTC.PITINTCTRL = 0;
             PORTA.PIN6CTRL = PORT_PULLUPEN_bm; 
-            _delay_us(200); // If you don't wait it seems to screw up the first few characters of output.
         }
     }
     return 0;
