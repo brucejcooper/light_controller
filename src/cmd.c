@@ -57,7 +57,6 @@ static read_result_t dali_write(uint8_t addr, uint8_t cmd) {
     // Check that line is high (and has been for some time?)
     // for each bit, drive low then high, or vice versa.
     if ((AC0.STATUS & AC_STATE_bm) == 0) {
-        log_char('B');
         return READ_COLLISION;
     }
 

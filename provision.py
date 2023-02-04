@@ -10,8 +10,8 @@ from struct import pack, unpack
 from binascii import hexlify
 
 
-clock_divisor = 2
-clock_freq = 32768
+clock_divisor = 1
+clock_freq = 1024
 
 def ms_to_ticks(ms):
     return int(ms * clock_freq / 1000 / clock_divisor)

@@ -34,8 +34,14 @@ static inline void set_wdt(uint8_t val) {
 }
 
 int main(void) {
-    set_wdt(NORMAL_WDT); 
+    // set_wdt(NORMAL_WDT); 
+    set_wdt(WDT_PERIOD_8KCLK_gc);
     console_init();
+    log_uint8("RSTFR", RSTCTRL_RSTFR);
+    log_uint16("Long press timeout", config->doublePressTimer);
+    log_uint16("Repeat", config->repeatTimer);
+    RSTCTRL_RSTFR = 0XFF;
+    _delay_ms(1);
 
     // Set the DALI output (PB2) as an output, initially set to zero out (not shorted)
     PORTB.OUTCLR = PORT_INT2_bm;
@@ -48,30 +54,56 @@ int main(void) {
     AC0.MUXCTRLA = AC_MUXNEG_VREF_gc | AC_MUXPOS_PIN0_gc;
     AC0.CTRLA = AC_HYSMODE_OFF_gc | AC_ENABLE_bm; // Enable the AC.    
 
+
     // Turn on the RTC and PIT
+    RTC.CLKSEL = RTC_CLKSEL_INT1K_gc; // Slow down buddy.
+    RTC.PITCTRLA = RTC_PERIOD_CYC4096_gc | RTC_PITEN_bm; // Set the PIT to go off at least once per maximum WDT period.
     while (RTC.STATUS & RTC_CTRLABUSY_bm) {
         ;
     }
-    RTC.CTRLA = RTC_RTCEN_bm | RTC_PRESCALER_DIV2_gc;
-    RTC.PITCTRLA = RTC_PERIOD_CYC16384_gc | RTC_PITEN_bm; // Seems to go off 1/sec no matter what the prescaler is.
-    RTC.PITINTCTRL = RTC_PI_bm;
+    RTC.CTRLA = RTC_RTCEN_bm | RTC_PRESCALER_DIV1_gc;
 
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
     buttons_init();
     sei();
 
+    uint8_t loop = 0;
+
     while (1) {
         if (poll_buttons()) {            
-            // Clear any interrupts that may cause the device to wake up immediately
+            log_uint8("S", ++loop);
             console_flush();
-            _delay_us(64);
-            PORTA.INTFLAGS = PIN6_bm;
-            RTC.PITINTFLAGS = RTC_PI_bm;
-            // Change the WDT to at least twice the PIT while we sleep
-            set_wdt(WDT_PERIOD_2KCLK_gc);
-            sleep_mode();
-            set_wdt(NORMAL_WDT); // Restore the WDT.
+            // Clear any interrupts that may cause the device to wake up immediately
+
+            // RTC.PITINTFLAGS = RTC_PI_bm;
+            // Change the WDT to its maximum value (8 secs)
+            // set_wdt(WDT_PERIOD_8KCLK_gc);
+            _delay_us(500); // The UART seems to need more time, even though we flushed it.
+            // Enable interrupts to wake us back up
+            PORTA.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
+            RTC.PITINTCTRL = RTC_PI_bm;
+            sleep_mode();            
+            // Disable the interrupts again, as everything is syncrhonous.
+            RTC.PITINTCTRL = 0;
+            PORTA.PIN6CTRL = PORT_PULLUPEN_bm; 
+            _delay_us(200); // If you don't wait it seems to screw up the first few characters of output.
         }
     }
     return 0;
+}
+
+// we don't expect the PIT to do anything except wake us up, but if there isn't an ISR,
+// odd things happen
+ISR(RTC_PIT_vect)
+{
+    RTC.PITINTFLAGS = RTC_PI_bm;
+}
+
+// Likewise, the PORTA interrupt is only there to wake us up.  Immediately disable the 
+// interrupt before clearing.
+ISR(PORTA_PORT_vect)
+{
+    log_uint8("PA", PORTA.INTFLAGS);
+    PORTA.PIN6CTRL = PORT_PULLUPEN_bm;
+    PORTA.INTFLAGS = PIN6_bm;
 }

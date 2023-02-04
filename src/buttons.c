@@ -15,7 +15,7 @@
 
 // For test board, switch is on PA6
 #define SWITCH_PORT PORTA
-#define MS_TO_RTC_TICKS(m) (m * 32768 / 1000 / 2)
+#define MS_TO_RTC_TICKS(m) (m * 1024 / 1000)
 struct button_t;
 
 typedef enum {
@@ -67,8 +67,8 @@ static button_t buttons[NUM_BUTTONS] = {
 
 
 void buttons_init() {
-    // Set up pins with pullup, and interrupt on 
-    SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
+    // Set up pins with pullup, with no interrupt.  the interrupt will be turned on while sleeping.
+    SWITCH_PORT.PIN6CTRL = PORT_PULLUPEN_bm;
 
     // Set all the pins as inputs.
     SWITCH_PORT.DIRCLR = PIN6_bm;
