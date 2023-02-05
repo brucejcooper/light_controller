@@ -8,7 +8,6 @@
 #include <stdbool.h>
 #include <string.h>
 #include "buttons.h"
-#include "console.h"
 #include "config.h"
 #include <stdlib.h>
 #include "cmd.h"
@@ -82,7 +81,7 @@ static void send_dali_cmd_no_response(button_t *btn, dali_gear_command_t cmd) {
     uint8_t dummy;
     read_result_t res = send_dali_cmd(config->targets[btn->index], cmd, &dummy);
     if (res != READ_NAK) {
-        log_uint8("Expected No repsonse", res);
+        // What do we do?
     }
 }
 
@@ -90,7 +89,6 @@ static uint8_t send_dali_query(button_t *btn, dali_gear_command_t cmd, uint8_t d
     uint8_t val;
     read_result_t res = send_dali_cmd(config->targets[btn->index], cmd, &val);
     if (res != READ_VALUE) {
-        log_uint8("Expected response", res);
         return defaultVal;
     }
     return val;    
@@ -114,14 +112,12 @@ static void released(button_t *btn, const uint8_t button_level) {
         // Because this takes some time (a little over 20 ms, including post response delay), there is no 
         // need for an additional debounce timer.
         btn->light_level = send_dali_query(btn, DALI_CMD_QUERY_ACTUAL_LEVEL, 0);     
-        log_uint8("Pressed. current level", btn->light_level);
     }
 }
 
 static void pressed(button_t *btn, const uint8_t button_level) {
     if (button_level) {
         // Its been released - send out either an off or an on command, depending ont he current level
-        log_info(btn->light_level ? "off" : "on");
         send_dali_cmd_no_response(btn, btn->light_level ? DALI_CMD_OFF : DALI_CMD_GO_TO_LAST_ACTIVE_LEVEL);
         // The command will have taken a little over 10 milliseconds.  This is effectively our debounce period.
         btn->state = BTN_STATE_RELEASED;
@@ -143,7 +139,6 @@ static void pressed(button_t *btn, const uint8_t button_level) {
 
 static void long_pressed(button_t *btn, const uint8_t button_level) {
     if (button_level) {
-        log_uint8("Released after long hold", btn->index);
         // It was released. Do some debouncing.
         btn->state = BTN_STATE_RELEASE_DEBOUNCE;
         btn->timeout = RTC.CNT + MS_TO_RTC_TICKS(10); 
@@ -163,14 +158,13 @@ static void release_debounce(button_t *btn, const uint8_t button_level) {
 
 static void wait_for_repress(button_t *btn, const uint8_t button_level) {
     if (!button_level) {
-        log_info("Repress");
         // Its a repress (Kinda like a double click, but after a long hold)
+        // TODO If you immediately repress, I wonder if going directly to max (or min) would be a good idea.  An easy way of getting to an extreme without having to wait. 
         btn->direction = btn->direction == DALI_CMD_UP ? DALI_CMD_DOWN : DALI_CMD_UP;
         btn->timeout = RTC.CNT + config->repeatTimer; 
         btn->state = BTN_STATE_LONGHELD;
         execute_dim(btn);
     } else if (is_timer_expired(btn)) {
-        log_info("Released");
         btn->state = BTN_STATE_RELEASED;
     }
 }

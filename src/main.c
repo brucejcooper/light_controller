@@ -9,16 +9,9 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include "console.h"
 #include "cmd.h"
 #include "buttons.h"
 #include "config.h"
-
-
-// Set up to allow a fair amount of processing, including dimming where several 
-// 20ms commands are chained.
-#define NORMAL_WDT PERIOD_256CLK_gc
-
 
 void reset() {
     // Write a bit into the SWRR to reboot the device (to the bootloader).
@@ -34,13 +27,8 @@ static inline void set_wdt(uint8_t val) {
 }
 
 int main(void) {
-    // set_wdt(NORMAL_WDT); 
+    // The longest WDT period we can set.
     set_wdt(WDT_PERIOD_8KCLK_gc);
-    console_init();
-    log_uint8("Reset Reason", RSTCTRL_RSTFR);
-    RSTCTRL_RSTFR = 0XFF;
-    log_uint16("Long press timeout", config->doublePressTimer);
-    log_uint16("Dim repeat timer", config->repeatTimer);
 
     // Set the DALI output (PB2) as an output, initially set to zero out (not shorted)
     PORTB.OUTCLR = PORT_INT2_bm;
@@ -66,12 +54,8 @@ int main(void) {
     buttons_init();
     sei();
 
-    uint8_t loop = 0;
-
     while (1) {
         if (poll_buttons()) {            
-            log_uint8("S", ++loop);
-            console_flush();
             // Enable interrupts to wake us back up
             PORTA.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
             RTC.PITINTCTRL = RTC_PI_bm;
@@ -86,16 +70,13 @@ int main(void) {
 
 // we don't expect the PIT to do anything except wake us up, but if there isn't an ISR,
 // odd things happen
-ISR(RTC_PIT_vect)
-{
+ISR(RTC_PIT_vect) {
     RTC.PITINTFLAGS = RTC_PI_bm;
 }
 
 // Likewise, the PORTA interrupt is only there to wake us up.  Immediately disable the 
 // interrupt before clearing.
-ISR(PORTA_PORT_vect)
-{
-    log_uint8("PA", PORTA.INTFLAGS);
+ISR(PORTA_PORT_vect) {
     PORTA.PIN6CTRL = PORT_PULLUPEN_bm;
     PORTA.INTFLAGS = PIN6_bm;
 }

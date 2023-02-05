@@ -13,7 +13,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include "console.h"
 #include "config.h"
 #include "cmd.h"
 
@@ -43,7 +42,21 @@ static inline void write_zero() {
 static inline void write_byte(uint8_t byte) 
 {
     for (uint8_t i = 0; i < 8; i++) {
+        // Load constant 8 into one register (ldi r1,8)
+        // load byte into another (ldi r2,??)
+        // startasm lsl - Top bit goes into carry (lcs)
+        // jump if carry is one to write one (brcs)
+        // set output high (start a zero)
+        // jump past next statement
+        // set output to low
+        // delay half bit
+        // toggle
+        // delay half bit
+        // decrement count register
+        // jump back to loop start if count register is not 0.
+
         //write each bit 1 at a time.
+        // TODO can we replace this with a shift less plus an output flag?
         if (byte & 0x80) {
             write_one();
         } else {
@@ -104,7 +117,6 @@ static read_result_t dali_read(uint16_t timeout, uint8_t *out) {
 
     // Wait for line to go low - record when this happened, then restart the clock
     while (AC0.STATUS & AC_STATE_bm) {
-        // log_uint16("CLK", TCA0.SINGLE.CNT);
         if (TCA0.SINGLE.CNT >= timeout) {
             // Nothing received within timeout period.
             result = READ_NAK;
