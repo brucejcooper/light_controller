@@ -46,6 +46,9 @@ pulse:
 dim:
 	./send_click.py 3000
 
+double:
+	./send_click.py 50 200 50
+
 
 clean:
 	rm -rf build/

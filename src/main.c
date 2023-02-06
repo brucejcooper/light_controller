@@ -13,6 +13,7 @@
 #include "buttons.h"
 #include "config.h"
 
+
 void reset() {
     // Write a bit into the SWRR to reboot the device (to the bootloader).
     RSTCTRL.SWRR = RSTCTRL_SWRE_bm;
@@ -29,6 +30,7 @@ static inline void set_wdt(uint8_t val) {
 int main(void) {
     // The longest WDT period we can set.
     set_wdt(WDT_PERIOD_8KCLK_gc);
+    // console_init();
 
     // Set the DALI output (PB2) as an output, initially set to zero out (not shorted)
     PORTB.OUTCLR = PORT_INT2_bm;
@@ -56,11 +58,11 @@ int main(void) {
 
     while (1) {
         if (poll_buttons()) {            
+            // log_info("Sleep");
             // Enable interrupts to wake us back up
             PORTA.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_LEVEL_gc;
             RTC.PITINTCTRL = RTC_PI_bm;
             sleep_mode();            
-            // Disable the interrupts again, as everything is syncrhonous.
             RTC.PITINTCTRL = 0;
             PORTA.PIN6CTRL = PORT_PULLUPEN_bm; 
         }
@@ -72,11 +74,4 @@ int main(void) {
 // odd things happen
 ISR(RTC_PIT_vect) {
     RTC.PITINTFLAGS = RTC_PI_bm;
-}
-
-// Likewise, the PORTA interrupt is only there to wake us up.  Immediately disable the 
-// interrupt before clearing.
-ISR(PORTA_PORT_vect) {
-    PORTA.PIN6CTRL = PORT_PULLUPEN_bm;
-    PORTA.INTFLAGS = PIN6_bm;
 }

@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include "cmd.h"
 
+
 // For test board, switch is on PA6
 #define SWITCH_PORT PORTA
 #define MS_TO_RTC_TICKS(m) (m * 1024 / 1000)
@@ -102,16 +103,21 @@ static inline void execute_dim(button_t *btn) {
 }
 
 
+static inline void do_press(button_t *btn) {
+    // Its been pressed.
+    btn->state = BTN_STATE_PRESSED;
+    btn->timeout = RTC.CNT + config->doublePressTimer;
+
+    // Whilst we're waiting for the button to debounce, ask the ballast its current level.
+    // Because this takes some time (a little over 20 ms, including post response delay), there is no 
+    // need for an additional debounce timer.
+    btn->light_level = send_dali_query(btn, DALI_CMD_QUERY_ACTUAL_LEVEL, 0);     
+}
+
+
 static void released(button_t *btn, const uint8_t button_level) {
     if (!button_level) {
-        // Its been pressed.
-        btn->state = BTN_STATE_PRESSED;
-        btn->timeout = RTC.CNT + config->doublePressTimer;
-
-        // Whilst we're waiting for the button to debounce, ask the ballast its current level.
-        // Because this takes some time (a little over 20 ms, including post response delay), there is no 
-        // need for an additional debounce timer.
-        btn->light_level = send_dali_query(btn, DALI_CMD_QUERY_ACTUAL_LEVEL, 0);     
+        do_press(btn);
     }
 }
 
@@ -170,32 +176,54 @@ static void wait_for_repress(button_t *btn, const uint8_t button_level) {
 }
 
 
+static void poll_button(button_t *btn, uint8_t val) {
+    switch (btn->state) {
+        case BTN_STATE_RELEASED:
+            released(btn, val);
+            break;
+        case BTN_STATE_PRESSED:
+            pressed(btn, val);
+            break;
+        case BTN_STATE_LONGHELD:
+            long_pressed(btn, val);
+            break;
+        case BTN_STATE_RELEASE_DEBOUNCE:
+            release_debounce(btn, val);
+            break;
+        case BTN_STATE_RELEASED_WAIT_FOR_REPRESS:
+            wait_for_repress(btn, val);
+            break;
+    }
+}
+
 bool poll_buttons() {
     bool all_idle = true;
 
     for  (button_t *btn = buttons; btn < (buttons+NUM_BUTTONS); btn++) {
         uint8_t val = SWITCH_PORT.IN & btn->mask;
-        switch (btn->state) {
-            case BTN_STATE_RELEASED:
-                released(btn, val);
-                break;
-            case BTN_STATE_PRESSED:
-                pressed(btn, val);
-                break;
-            case BTN_STATE_LONGHELD:
-                long_pressed(btn, val);
-                break;
-            case BTN_STATE_RELEASE_DEBOUNCE:
-                release_debounce(btn, val);
-                break;
-            case BTN_STATE_RELEASED_WAIT_FOR_REPRESS:
-                wait_for_repress(btn, val);
-                break;
-        }
+        poll_button(btn, val);
         if (btn->state != BTN_STATE_RELEASED) {
             all_idle = false;
         }
         wdt_reset();
     }
     return all_idle;
+}
+
+
+// This is called if a button was pressed while sleeping (the normal entry to a button being pressed)
+ISR(PORTA_PORT_vect) {
+    // Turn off all interrupts, as we're going back to polling.
+    PORTA.PIN6CTRL = PORT_PULLUPEN_bm;
+
+    // We know the button was pressed, and that all buttons must have been idle beforehand.
+    uint8_t processed = 0x00;
+    for  (button_t *btn = buttons; btn < (buttons+NUM_BUTTONS); btn++) {
+        if (PORTA.INTFLAGS & btn->mask) {
+            processed |= btn->mask;
+            do_press(btn);
+        }
+    }
+    // Acknowledge the processed interrupts. 
+    PORTA.INTFLAGS = processed;
 }
