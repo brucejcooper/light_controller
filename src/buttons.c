@@ -20,11 +20,23 @@ struct button_t;
 
 typedef enum {
     BTN_STATE_RELEASED,
+    BTN_STATE_DEBOUNCING,
     BTN_STATE_PRESSED,
     BTN_STATE_LONGHELD,
     BTN_STATE_RELEASE_DEBOUNCE,
     BTN_STATE_RELEASED_WAIT_FOR_REPRESS,
 } button_state_t; 
+
+
+typedef enum {
+    SLEEP_STATE_PROCESSING,
+    SLEEP_STATE_WAITING,
+    SLEEP_STATE_SLEEP_READY
+} sleep_state_t;
+
+
+static sleep_state_t sleepState = SLEEP_STATE_PROCESSING;
+static uint16_t idleTimeout;
 
 
 typedef void (*state_handler_t)(struct button_t *btn, const uint8_t button_level);
@@ -74,9 +86,14 @@ void buttons_init() {
     SWITCH_PORT.DIRCLR = PIN6_bm;
 }
 
-static inline bool is_timer_expired(button_t *btn) {
-    return ((int16_t) (RTC.CNT - btn->timeout)) >= 0;
+static inline bool check_timeout(uint16_t t) {
+    return ((int16_t) (RTC.CNT - t)) >= 0;
 }
+
+static inline bool is_timer_expired(button_t *btn) {
+    return check_timeout(btn->timeout);
+}
+
 
 static void send_dali_cmd_no_response(button_t *btn, dali_gear_command_t cmd) {
     uint8_t dummy;
@@ -105,13 +122,23 @@ static inline void execute_dim(button_t *btn) {
 
 static inline void do_press(button_t *btn) {
     // Its been pressed.
-    btn->state = BTN_STATE_PRESSED;
-    btn->timeout = RTC.CNT + config->doublePressTimer;
+    btn->state = BTN_STATE_DEBOUNCING;
+    btn->timeout = RTC.CNT + MS_TO_RTC_TICKS(20);
+}
 
-    // Whilst we're waiting for the button to debounce, ask the ballast its current level.
-    // Because this takes some time (a little over 20 ms, including post response delay), there is no 
-    // need for an additional debounce timer.
-    btn->light_level = send_dali_query(btn, DALI_CMD_QUERY_ACTUAL_LEVEL, 0);     
+static void debouncing(button_t *btn, const uint8_t button_level) {
+    if (button_level) {
+        // Bounce!  We ignore small pulses (less than the debounce timer) to be noise resistant.
+        btn->state = BTN_STATE_RELEASED;
+    } else if (is_timer_expired(btn)) {
+        // Graduated to pressed. 
+        btn->state = BTN_STATE_PRESSED;
+        btn->timeout = RTC.CNT + config->doublePressTimer;
+
+        // ask the ballast its current level.
+        // this takes some time (15-20 ms, including post response delay)
+        btn->light_level = send_dali_query(btn, DALI_CMD_QUERY_ACTUAL_LEVEL, 0);     
+    }
 }
 
 
@@ -181,6 +208,9 @@ static void poll_button(button_t *btn, uint8_t val) {
         case BTN_STATE_RELEASED:
             released(btn, val);
             break;
+        case BTN_STATE_DEBOUNCING:
+            debouncing(btn, val);
+            break;
         case BTN_STATE_PRESSED:
             pressed(btn, val);
             break;
@@ -193,8 +223,14 @@ static void poll_button(button_t *btn, uint8_t val) {
         case BTN_STATE_RELEASED_WAIT_FOR_REPRESS:
             wait_for_repress(btn, val);
             break;
+        default:
+            // Illegal state.
+            btn->state = BTN_STATE_RELEASED;
+            break;
     }
 }
+
+
 
 bool poll_buttons() {
     bool all_idle = true;
@@ -207,7 +243,28 @@ bool poll_buttons() {
         }
         wdt_reset();
     }
-    return all_idle;
+    // If nothing happens for 1/2 second once we return to an all-idle state, sleep.
+    // This is needed to deal with debouncing during press.
+    if (all_idle) {
+        switch (sleepState) {
+            case SLEEP_STATE_SLEEP_READY:
+                return true;
+
+            case SLEEP_STATE_WAITING:
+                if (check_timeout(idleTimeout)) {
+                    sleepState = SLEEP_STATE_SLEEP_READY;
+                }
+            break;
+
+            case SLEEP_STATE_PROCESSING:
+                sleepState = SLEEP_STATE_WAITING;
+                idleTimeout = RTC.CNT + MS_TO_RTC_TICKS(500); 
+            break;
+        }
+    } else {
+        sleepState = SLEEP_STATE_PROCESSING;
+    }
+    return false;
 }
 
 
