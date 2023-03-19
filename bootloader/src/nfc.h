@@ -19,54 +19,63 @@ extern "C" {
 
 
 
-// GPO Control
-#define NFC_GPO_CTRL_Dyn 0x2000
-// Energy HArvesting Management and status
-#define NFC_EH_CTRL_Dyn 0x2002
-// RF Interface management
-#define NFC_RF_CTRL_Dyn 0x2003
-// I2C Security session status
-#define NFC_I2C_SSO_Dyn 0x2004
-// Interruption Status
-#define NFC_IT_STS_Dyn 0x2005
-// Fast mode control and status
-#define NFC_MB_CTRL_Dyn 0x2006
-// Fast mode message length
-#define NFC_MB_LEN_Dyn 0x2007
-
-// Enable/Disable Interrupts on GPO
-#define NFC_REG_GPO 0x0000
-
-// Fast mode mailbox
-#define NFC_MB_dyn 0x2008
+// Miscelaneouc Registers (All E2=1)
+#define NFC_REG_DSFID       0x0012
+#define NFC_REG_AFI         0x0013
+#define NFC_REG_MEM_SIZE    0x0014
+#define NFC_REG_BLK_SIZE    0x0016
+#define NFC_REG_IC_REF      0x0017
+#define NFC_REG_UID         0x0017
+#define NFC_REG_IC_REV      0x0020
+#define NFC_REG_I2CPWD      0x9000
 
 
-#define NFC_REG_OFFSET 0x0000
 
 
-#define NFC_GPO_RF_USER_bm 0x01
-#define NFC_GPO_RF_ACTIVITY_bm 0x02
-#define NFC_GPO_RF_INTERRUPT_bm 0x04
-#define NFC_GPO_FIELD_CHANGE_bm 0x08 /* Factory Default */
-#define NFC_GPO_PUT_MSG_bm 0x10
-#define NFC_GPO_GET_MSG_bm 0x20
-#define NFC_GPO_WRITE_bm 0x40
-#define NFC_GPO_ENABLED 0x80 /* Factory Default */
 
+// ----------------------------- GPO  -----------------------
+/**
+ * GPO - GPO Control
+ * Controls which events are sent over the GPO pin
+ * 
+ * E2 Set for Reg, not set for Dyn
+ **/ 
+#define NFC_REG_GPO             0x0000
+#define NFC_REG_GPO_CTRL_Dyn    0x2000
+
+#define NFC_GPO_RF_USER_bm      0x80
+#define NFC_GPO_RF_ACTIVITY_bm  0x40
+#define NFC_GPO_RF_INTERRUPT_bm 0x20
+#define NFC_GPO_FIELD_CHANGE_bm 0x10 /* Factory Default */
+#define NFC_GPO_PUT_MSG_bm      0x08
+#define NFC_GPO_GET_MSG_bm      0x04
+#define NFC_GPO_RF_WRITE_bm     0x02
+#define NFC_GPO_ENABLED_bm      0x01 /* Factory Default */
+
+
+/**
+ * @brief IT_TIME 
+ * Pulse Time for GPO events.
+ */
 // Times are +/- 2 uSec, and the values shown here are rounded
+#define NFC_REG_IT_TIME     0x0001
 typedef enum {
-    NFC_GPO_PULSE_DURATION_301_US = 0,
-    NFC_GPO_PULSE_DURATION_263_US,
-    NFC_GPO_PULSE_DURATION_226_US,
-    NFC_GPO_PULSE_DURATION_185_US, /* Factory Default */
-    NFC_GPO_PULSE_DURATION_150_US,
-    NFC_GPO_PULSE_DURATION_113_US,
-    NFC_GPO_PULSE_DURATION_75_US,
-    NFC_GPO_PULSE_DURATION_37_US
+    NFC_GPO_PULSE_DURATION_301_US = (0b000) << 5,
+    NFC_GPO_PULSE_DURATION_263_US = (0b100) << 5,
+    NFC_GPO_PULSE_DURATION_226_US = (0b010) << 5,
+    NFC_GPO_PULSE_DURATION_185_US = (0b110) << 5, /* Factory Default */
+    NFC_GPO_PULSE_DURATION_150_US = (0b001) << 5,
+    NFC_GPO_PULSE_DURATION_113_US = (0b101) << 5,
+    NFC_GPO_PULSE_DURATION_75_US  = (0b011) << 5,
+    NFC_GPO_PULSE_DURATION_37_US  = (0b111) << 5
 } nfc_gpo_pulse_duration_t;
 
 
-// Used by IT_STS_Dyn
+/**
+ * @brief IT_STS_Dyn
+ * Interruption Status - What caused the GPO pulse
+ */
+#define NFC_REG_IT_STS_Dyn  0x2005
 #define NFC_INTERRUPT_USER_bm 0x01
 #define NFC_INTERRUPT_RF_ACTIVITY_bm 0x02
 #define NFC_INTERRUPT_RF_INTERRUPT_bm 0x04
@@ -77,20 +86,51 @@ typedef enum {
 #define NFC_INTERRUPT_RF_WRITE_bm 0x80
 
 
-// EH mode
+
+// ----------------------------- ENERGY HARVESTING -----------------------
+/**
+ * @brief EH_MODE
+ * Determines how/if Energy Harvesting is done
+ */
+#define NFC_REG_EH_MODE     0x0002
+
 #define NFC_EH_MODE_FORCED 0x00
 #define NFC_EH_MODE_ON_DEMAND 0x01 /* Factory Default */
 
-// EH Status (and dynamic enable/disable)
+#define NFC_REG_EH_CTRL_Dyn 0x2002
 #define NFC_EH_ENABLED_bm 0x01
 #define NFC_EH_STATUS_ENABLED_bm 0x02
 #define NFC_EH_STATUS_FIELD_ON_bm 0x04
 #define NFC_EH_STATUS_VCC_ON_bm 0x08
 
-// RF_control
+
+// ----------------------------- RF Control -----------------------
+/**
+ * @brief RF_MNGT
+ * Whether RF is enabled and/or sleeping. 
+ */
+
+#define NFC_REG_RF_MNGT     0x0003
+#define NFC_REG_RF_CTRL_Dyn 0x2003
+
 #define NFC_RF_DISABLE_bm 0x01
 #define NFC_RF_SLEEP_bm 0x02
 
+
+
+
+// ----------------------------- Access Control -----------------------
+#define NFC_REG_ENDA1       0x0005
+#define NFC_REG_ENDA2       0x0007
+#define NFC_REG_ENDA3       0x0009
+#define NFC_REG_RFA1SS      0x0004
+#define NFC_REG_RFA2SS      0x0006
+#define NFC_REG_RFA3SS      0x0008
+#define NFC_REG_RFA4SS      0x000A
+#define NFC_REG_I2CSS       0x000B
+
+// I2C Security session status
+#define NFC_REG_I2C_SSO_Dyn 0x2004
 
 // RF Access Ctonrol - Two fields - The bottom bits are access control
 typedef enum {
@@ -120,17 +160,28 @@ typedef enum {
 
 
 // LOCK_CCFILE
+#define NFC_REG_LOCK_CCFILE 0x000C
 #define NFC_LOCK_LCKBCK0 0x01
 #define NFC_LOCK_LCKBCK1 0x02
 
 // LOCK_CFG
+#define NFC_REG_LOCK_CFG    0x000F
 #define NFC_LOCK_CFG_LOCKED 0x01
 
+
+#define NFC_REG_LOCK_DSFID  0x0010
+#define NFC_REG_LOCK_AFI    0x0011
+
+
+// ----------------------------- Fast Mode Mailbox -----------------------
+
 // MB_MODE
+#define NFC_REG_MB_MODE     0x000D
 #define NFC_MB_MODE_FORBIDDEN 0x00
 #define NFC_MB_MODE_ENABLED 0x01
 
 // MB_WDG
+#define NFC_REG_MB_WDG      0x000E
 #define NFC_MB_WDG_DISABLE 0x00
 #define NFC_MB_WDG_30_MS 0x01
 #define NFC_MB_WDG_60_MS 0x02
@@ -138,6 +189,8 @@ typedef enum {
 
 
 // MB_CTRL_Dyn
+#define NFC_REG_MB_CTRL_Dyn 0x2006
+// Fast mode mailbox
 #define NFC_MB_CTRL_ENABLE_bm 0x01
 #define NFC_MB_CTRL_HOST_PUT_MSG_bm 0x02
 #define NFC_MB_CTRL_RF_PUT_MSG_bm 0x04
@@ -149,6 +202,13 @@ typedef enum {
 #define NFC_MB_CTRL_RF_CURRENT_MSG_bm 0x80
 
 
+// Fast mode message length
+#define NFC_REG_MB_LEN_Dyn  0x2007
+// The Mailbox itself.
+#define NFC_REG_MB_dyn      0x2008
+
+
+// -----------------------------------------------------------------------
 
 
 typedef struct {
@@ -225,6 +285,9 @@ typedef struct {
      * Reads a number of bytes from the specified register address.
      */
     bool NFC_read(uint8_t e2, uint16_t regAddress, void* data, uint8_t len);
+
+    bool NFC_present_password(uint8_t pw[8], uint8_t op);
+
 
     
 #ifdef	__cplusplus

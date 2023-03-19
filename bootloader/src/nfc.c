@@ -3,6 +3,7 @@
 #include <avr/io.h>
 #include <stdbool.h>
 #include <string.h>
+#include <util/delay.h>
 
 #define TWI_READ 0x01
 #define TWI_WRITE 0x00
@@ -24,22 +25,6 @@
 #define NFC_ADDR (0x53)
 #define NFC_ADDR_SHIFTED (NFC_ADDR << 1)
 
-static bool isTWIBad(void)
-{
-    //Checks for: NACK, ARBLOST, BUSERR, Bus Busy
-    if ((((TWI0.MSTATUS) & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) > 0)
-            || (TWI_IS_BUSBUSY()))
-    {
-        return true;
-    }
-    return false;
-}
-
-void twi_wait() {
-    while (!((TWI_IS_CLOCKHELD()) || (TWI_IS_BUSERR()) || (TWI_IS_ARBLOST()) || (TWI_IS_BUSBUSY()))) {
-
-    }
-}
 
 
 static void TWI_initPins(void)
@@ -73,21 +58,38 @@ void NFC_initHost(void)
             TWI_ARBLOST_bm | TWI_BUSERR_bm | TWI_BUSSTATE_IDLE_gc;
     
     //Set for 100kHz.
-    TWI0.MBAUD = TWI_BAUD;
+    TWI0.MBAUD = 15; // TWI_BAUD;
     
     //[No ISRs] and Host Mode
     TWI0.MCTRLA = TWI_ENABLE_bm;
 }
 
 
+static inline void waitForWrite() {
+    while (!(TWI0.MSTATUS & TWI_WIF_bm)) {}
+}
+
+static inline void waitForRead() {
+    while (!(TWI0.MSTATUS & TWI_RIF_bm)) {}
+}
+
+static inline bool gotAckFromWrite() {
+   // Returns true if we got an ack and there were no bus errors or loss of arbitration.
+   // For the purposes of this bootloader, we don't differentiate between a nack and
+   // a bus error or loss of abritration.
+   return (TWI0.MSTATUS & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) == 0;
+}
+
+
 bool _writeByteToTWI(uint8_t data) {
     //Write a byte
     TWI0.MDATA = data;
-    
-    //Wait...
-    twi_wait();
-    return CLIENT_ACK();
+    waitForWrite();
+    return gotAckFromWrite();
 }
+
+
+
 
 
 static bool _startTWI(uint8_t e2, uint16_t regAddress)
@@ -97,17 +99,16 @@ static bool _startTWI(uint8_t e2, uint16_t regAddress)
     {
         return false;
     }
-    
-    // Start command is always a write.
-    TWI0.MADDR = NFC_ADDR_SHIFTED | e2;
 
-    //Wait...
-    twi_wait();
-                
-    if (isTWIBad()) {
+    // Start command is always a write.
+    TWI0.MADDR = NFC_ADDR_SHIFTED | TWI_WRITE | e2;
+    waitForWrite();
+
+    // Check to see that we got an ACK.
+    if (!gotAckFromWrite()) {
         return false;
     }
-
+               
     //Write register address
     if (!_writeByteToTWI(regAddress >> 8)) {
         return false;
@@ -125,59 +126,57 @@ static bool _startTWI(uint8_t e2, uint16_t regAddress)
 
 
 bool NFC_write(uint8_t e2, uint16_t regAddress, uint8_t* data, uint8_t len) {
+    bool result = false;
     if (!_startTWI(e2, regAddress)) {
-        goto error;
+        goto cleanup;
     }
-       
-    for (uint8_t count = 0; count < len; count++) {
-        if (!_writeByteToTWI(data[count])) {
-            goto error;
-        }
+    result = true;
+    while (result && len--) {
+        result = _writeByteToTWI(*data++);
     }
-    return true;
-error:
+cleanup:
     TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-    return false;
+    return result;
 }
 
 
 
 bool NFC_read(uint8_t e2, uint16_t regAddress, void* vdata, uint8_t len) {
+    uint8_t *dptr = (uint8_t *) vdata;
+
     //Address Client Device (Write)
     if (!_startTWI(e2, regAddress)) {
         goto error;
     }
             
-    //Restart the TWI Bus in READ mode
-    TWI0.MADDR |= TWI_READ;
+    //Restart the TWI Bus, and send the read address
     TWI0.MCTRLB = TWI_MCMD_REPSTART_gc;
+    TWI0.MADDR |= TWI_READ;
+    TWI0.MCTRLB = len ? TWI_ACKACT_ACK_gc | TWI_MCMD_RECVTRANS_gc :  TWI_ACKACT_NACK_gc | TWI_MCMD_STOP_gc;
+
+    // TODO how do we tell if the read address wasn't acknowledged?  It doesn't set WIF after writing the address - it just goes immediately into reading.
     
-    //Wait...
-    twi_wait();
+    // TWI device will automatically clock one byte of data in after sending the read address.  
+    while (len--) {        
+        // Set action for next byte. We ack all but the last one, then issue a STOP.
+        waitForRead();
+
+        // At this point, the clock is held, waiting for our response. 
+
+        //Store data - This will clear RIF and CLKHOLD
+        *(dptr++) = TWI0.MDATA;        
+
+        // A byte will have been read in at this point, but we need to respond.  This will
+        // release the clock hold and clear RIF
+        TWI0.MCTRLB = len ? TWI_ACKACT_ACK_gc | TWI_MCMD_RECVTRANS_gc :  TWI_ACKACT_NACK_gc | TWI_MCMD_STOP_gc;
+    }
+
+    // Wait for last read to be completed (Bus to return to idle) - Not 100% sure this is the right move, but it works.
+    while ((TWI0.MSTATUS & TWI_BUSSTATE_gm) != TWI_BUSSTATE_IDLE_gc) { }
     
-    if (isTWIBad()) {
+    if (TWI0.MSTATUS & (TWI_ARBLOST_bm | TWI_BUSERR_bm)) {
         goto error;
     }
-    
-    //Read the data from the client
-    //Release the clock hold
-    TWI0.MSTATUS = TWI_CLKHOLD_bm;
-    
-    // TWI0.MCTRLB = TWI_MCMD_RECVTRANS_gc;
-    for (uint8_t bCount = 0;  bCount < len;) {
-        //Wait...
-        twi_wait();
-        
-        //Store data
-        ((uint8_t *) vdata)[bCount++] = TWI0.MDATA;        
-        if (bCount < len) {
-            //If not done, then ACK and read the next byte
-            TWI0.MCTRLB = TWI_ACKACT_ACK_gc | TWI_MCMD_RECVTRANS_gc;
-        }
-    }
-    
-    //NACK and STOP the bus
-    TWI0.MCTRLB = TWI_ACKACT_NACK_gc | TWI_MCMD_STOP_gc;
     return true;
 error:
     TWI0.MCTRLB = TWI_MCMD_STOP_gc;
@@ -193,7 +192,6 @@ bool NFC_present_password(uint8_t pw[8], uint8_t op) {
     memcpy(buf+9, pw, 8);
 
     // After successfull compare, I2C_SSO_dyn register set to 0x01 - set to 0x00 otherwise.
-
-    return NFC_write(NFC_E2, 0x0900, buf, 17);
+    return NFC_write(NFC_E2, NFC_REG_I2CPWD, buf, 17);
 }
 

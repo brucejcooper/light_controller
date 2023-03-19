@@ -1,9 +1,9 @@
-DEVICE     = attiny804
+DEVICE     = attiny806
 CLOCK      = 3333333
 FILENAME   = main
 PORT	   = /dev/ttyUSB0
 # When compiling for bootloader,  target application uses -Wl,--section-start=.text=0x400 to offset code by 1024 bytes
-COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE) -Wl,--section-start=.text=0x400
+COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE) -Wl,--section-start=.text=0x800
 AVR_GCC_DIR = ../avr
 SOURCES    = $(wildcard src/*.c)
 OBJECTS    = $(subst src/,build/,$(subst .c,.o,$(SOURCES)))

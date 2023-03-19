@@ -16,10 +16,10 @@ FUSE_SYSCFG1 = 0x07
 # No App Data section
 FUSE_APPEND = 0x00
 # Boot flash = 1Kb - App starts immediately after
-FUSE_BOOTEND = 0x04
+FUSE_BOOTEND = 0x08
 
 # the extra linker command is to relocate the application
-COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE) -nostartfiles -Wl,--section-start=.application=0x400
+COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE) -nostartfiles -Wl,--section-start=.application=0x800
 AVR_GCC_DIR = ../avr
 SOURCES    = $(wildcard src/*.c)
 OBJECTS    = $(subst src/,build/,$(subst .c,.o,$(SOURCES)))

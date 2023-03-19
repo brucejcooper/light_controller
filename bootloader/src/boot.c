@@ -77,7 +77,7 @@ static void printHex(uint8_t val) {
 
 
 
-void print(const char *str) {
+static void print(const char *str) {
     for (char *ch = (char *) str; *ch; ch++) {
         printch(*ch);
     }
@@ -90,7 +90,7 @@ void print(const char *str) {
 static void show_error() {
     for (;;) {
         LED_PORT.OUTTGL = LED_PIN;
-        _delay_ms(500);
+        _delay_ms(100);
     }
 }
 
@@ -106,6 +106,7 @@ static void uart_init() {
 }
 
 static nfc_regs_t nfc;
+static uint8_t nfc_pw[8];
 
 // Help obtained from https://ww1.microchip.com/downloads/en/Appnotes/AN2634-Bootloader-for-tinyAVR-and-megaAVR-00002634C.pdf
 // Bootloader is compiled with -nostartfiles, and has no ISR table.
@@ -139,17 +140,35 @@ __attribute__((naked)) __attribute__((section(".ctors"))) void boot(void){
 
     // Read in all sT25DV configuration registers
     bool success = NFC_read(NFC_E2, 0x0000, &nfc, sizeof(nfc));
+
+    if (!success) {
+        goto fail;
+    }
+    if (nfc.gpo != 0) {
+        print("Config");
+        nfc.gpo = 0;
+        for (int i = 0; i < sizeof(nfc_pw); i++) {
+            nfc_pw[i] = 0;
+        }
+        success = NFC_present_password(nfc_pw, PASSWORD_VALIDATION_PRESENT);
+        if (!success) {
+            goto fail;
+        }
+
+        print("Writing");
+        success = NFC_write(NFC_E2, 0x0000, (uint8_t *) &nfc, sizeof(nfc));
+        if (!success) {
+            goto fail;
+        }
+    } else {
+        print("Already Configured");
+    }
+
+
     // Turn off TWI
     TWI0.MCTRLA = 0;
 
 
-
-    print("GPO");
-    printHex(nfc.gpo);
-    print("IT Time");
-    printHex(nfc.it_time);
-    print("EH Mode");
-    printHex(nfc.eh_mode);
 
     // By default, the tag should be configured to send out a GPIO pulse whenever a block is written to
     // its SRAM buffer.  During firmware streaming, this should be disabled and polling used, as it would reset the device.
@@ -157,10 +176,6 @@ __attribute__((naked)) __attribute__((section(".ctors"))) void boot(void){
     // Check to see if there's a block for us on the NFC card
     // If yes, go into download mode
     // Otherwise, boot as normal.
-    if (!success) {
-        print("Error");
-        show_error();
-    }
 
     // Jump to the "App", whatever that is - Initial flash includes a dummy one, but this bootloader may overwrite it
     print("=>App");
@@ -188,8 +203,12 @@ __attribute__((naked)) __attribute__((section(".ctors"))) void boot(void){
     // app();
 
     __asm__ __volatile__(
-        "  jmp 0x8400\n"
+        "  jmp 0x8800\n"
     );
+
+fail:
+    print("Error");
+    show_error();
 }
 
 /*
