@@ -1,14 +1,15 @@
 DEVICE     = attiny804
 CLOCK      = 3333333
-PORT	   = /dev/ttyUSB0
 FILENAME   = main
-COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE)
-AVR_GCC_DIR = avr
+PORT	   = /dev/ttyUSB0
+# When compiling for bootloader,  target application uses -Wl,--section-start=.text=0x400 to offset code by 1024 bytes
+COMPILE    = avr-gcc -Wall -Os -DF_CPU=$(CLOCK) -mmcu=$(DEVICE) -Wl,--section-start=.text=0x400
+AVR_GCC_DIR = ../avr
 SOURCES    = $(wildcard src/*.c)
 OBJECTS    = $(subst src/,build/,$(subst .c,.o,$(SOURCES)))
 export PATH := $(shell pwd)/$(AVR_GCC_DIR)/bin:$(PATH)
 
-all: clean build erase flash
+all: flash
 
 download_gcc:
 	wget http://downloads.arduino.cc/tools/avr-gcc-7.3.0-atmel3.6.1-arduino7-x86_64-pc-linux-gnu.tar.bz2 -q -O- | bzcat | tar xv
@@ -28,29 +29,14 @@ build: prepare $(OBJECTS)
 erase:
 	pymcuprog -t uart -u $(PORT) -d $(DEVICE) erase
 
-flash:
+flash: clean build erase
+	pymcuprog -t uart -u $(PORT) -d $(DEVICE) write -f ../bootloader/build/boot.hex --verify
 	pymcuprog -t uart -u $(PORT) -d $(DEVICE) write -f build/$(FILENAME).hex --verify
-
-get_config: 
-	pymcuprog -t uart -u ${PORT} -d $(DEVICE) -m user_row read
-
-configure:
-	pymcuprog -t uart -u ${PORT} -d $(DEVICE) -m user_row write -l 0x01    0x03 0x05 0x07 0x09 0x0b   0xa3 0x00  0xD0 0x03    0xF4 0x00
-
-reset:
-	pymcuprog -t uart -u ${PORT} -d $(DEVICE) reset
-
-pulse:
-	./send_click.py 500
-
-dim:
-	./send_click.py 3000
-
-double:
-	./send_click.py 50 200 50
-
 
 clean:
 	rm -rf build/
 	rm -f main.elf
 	rm -f main.hex
+
+reset:
+	pymcuprog -t uart -u ${PORT} -d $(DEVICE) reset

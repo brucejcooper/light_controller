@@ -1,0 +1,188 @@
+#include "bitbang_i2c.h"
+#include <util/delay.h>
+
+#include <avr/io.h>
+#include <stdbool.h>
+
+#define TWI_READ 0x01
+#define TWI_WRITE 0x00
+
+#define TWI_PORT PORTB
+#define SCL PIN0_bm
+#define SDA PIN1_bm
+
+
+// We want open drain - we do this by alternating between input and output
+static inline void driveSDALow() {
+    TWI_PORT.DIRSET = SDA;
+}
+
+static inline void releaseSDA() {
+    // Turns it into an input, which will be driven up by the pullup.
+    TWI_PORT.DIRCLR = SDA;
+}
+
+static inline void driveSCLLow() {
+    TWI_PORT.OUTCLR = SCL;
+}
+
+static inline void driveSCLHigh() {
+    TWI_PORT.OUTSET = SCL;
+}
+
+static inline uint8_t getSDA() {
+    return TWI_PORT.IN & SDA;
+}
+
+#define bitDelay() {}
+// static inline void bitDelay() {
+//     // _delay_us(1);
+//     // __asm__ __volatile__(
+//     //     "  nop\n"
+//     // );
+// }
+
+void TWI_init(void)
+{
+    //PB0 and PB1
+        
+    //Output I/O
+    // Set up SDA as an input
+    TWI_PORT.OUTCLR = SDA;
+    TWI_PORT.DIRCLR = SDA;
+
+    // And SCL as an output initially high.
+    TWI_PORT.OUTSET = SCL;
+    TWI_PORT.DIRSET = SCL;
+
+#ifdef TWI_ENABLE_PULLUPS
+    //Enable Pull-Ups
+    PORTB.PIN0CTRL = PORT_PULLUPEN_bm;
+    PORTB.PIN1CTRL = PORT_PULLUPEN_bm;
+#endif
+
+}
+
+
+
+
+
+static void sendTWIStart() {
+    // A Start condition is driving SDA down while SCL is HIGH
+    releaseSDA(); // It should have already been released, but be safe.
+    driveSCLHigh();
+    bitDelay();
+    driveSDALow();
+    bitDelay();
+
+
+}
+
+
+static uint8_t send(uint8_t data) {
+    for (uint8_t i = 0; i < 8; i++) {
+        // Drive Clock Down
+        driveSCLLow();
+        // Set the SDA to the appropriate val
+        if (data & 0x80) {
+            releaseSDA();
+        } else {
+            driveSDALow();
+        }
+        data <<= 1;
+
+        bitDelay();
+
+        // Drive clock back up again
+        driveSCLHigh();
+        bitDelay(); // This is when the receiver will read the data.
+    }
+    // Now read the ACK bit
+    driveSCLLow();
+    releaseSDA();
+    bitDelay(); // This is when the transmiter will set the value. 
+    driveSCLHigh();
+    // Read ack value in.
+    uint8_t ack = !getSDA();
+    bitDelay();
+
+    // At this point, clock is high. and SDA is released.
+    // I2C clock stretch (set it low) (I think)
+    driveSCLLow();
+    return ack;
+}
+
+static uint8_t receive(bool ack) {
+    uint8_t data = 0;
+    driveSCLLow();
+    releaseSDA();
+    for (int i = 0; i < 8; i++) {
+        // Wait for a bit
+        bitDelay();
+        data <<= 1;
+        driveSCLHigh();
+        // Read the value in
+        data |= (getSDA() ? 1 : 0);
+        bitDelay(); // This is when the receiver will read the data.
+        // Drive Clock Down
+        driveSCLLow();
+    }
+    if (ack) {
+        driveSDALow();
+    }    
+    bitDelay(); // This is when the transmiter will set the value. 
+    driveSCLHigh();
+    // Wait for one cycle to allow device to read the ack/nack.
+    _delay_us(1);
+    bitDelay();
+    driveSCLLow();
+    return data;
+}
+
+
+static void stop() {
+    // A stop condition is release SDA while SCL is HIGH
+    driveSDALow();
+    bitDelay();
+    driveSCLHigh();
+    bitDelay();
+    releaseSDA();
+    // At this point, 
+    bitDelay();
+}
+
+static bool _startTWI(uint8_t addr, bool read)
+{
+    sendTWIStart();
+    return send(addr << 1 | read);
+}
+
+bool TWI_sendAndReadBytes(uint8_t addr, uint16_t regAddress, uint8_t* data, uint8_t len){
+    bool worked = false;
+    //Address Client Device (Write)
+
+    if (!_startTWI(addr, TWI_WRITE)) {
+        goto cleanup;
+    }
+
+    if (!send(regAddress >> 8)) {
+        goto cleanup;
+    }
+    if (!send(regAddress)) {
+        goto cleanup;
+    }
+
+    // Repeated start and select, but this time for read.
+    if (!_startTWI(addr, TWI_READ)) {
+        goto cleanup;
+    }
+    
+    //Read data from the device
+    while (len--) {
+        *(data++) = receive(len > 0);
+    }
+    worked = true;
+cleanup:
+    stop();
+    return worked;
+}
